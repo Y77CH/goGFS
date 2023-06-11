@@ -1,5 +1,11 @@
 # goGFS
 
+## goGFS v0.1.2
+
+Update the server such that it will handle concurrent read, instead of blocking new requests.
+
+Key takeaway: Use goroutine to handle concurrent requests ([doc](https://pkg.go.dev/net/rpc#NewClient)).
+
 ## goGFS v0.1.1
 
 Change the project structure such that servers will be launched separatedly as new processes 
@@ -37,7 +43,5 @@ as there is no real scenario where I need to, for example, set an individual bit
 
 ### Notes
 
-* RPC parts referred to the Princeton COS418 slide[^1].
+* RPC parts referred to the Princeton COS418 [slide](https://www.cs.princeton.edu/courses/archive/spring21/cos418/docs/precept3_rpcs_in_go.pdf).
 * Quick Reference: 1 MB = 1024*1024 = 1048576 bytes
-
-[^1]: https://www.cs.princeton.edu/courses/archive/spring21/cos418/docs/precept3_rpcs_in_go.pdf

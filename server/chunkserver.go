@@ -72,5 +72,12 @@ func main() {
 	if err != nil {
 		fmt.Println("ERROR: Server listener start failed. " + err.Error())
 	}
-	rpc.Accept(listener)
+	// concurrently handle requests
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			continue
+		}
+		go rpc.ServeConn(conn)
+	}
 }
