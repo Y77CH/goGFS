@@ -6,10 +6,31 @@ import (
 	"net/rpc"
 )
 
+// the function that is used to simulate master
+func getChunkHandleAndLocation(fileName string, chunkIndex int64) (chunkHandle, []string) {
+	dummyList := *new([1]string)
+	dummyList[0] = "127.0.0.1:12345"
+	if fileName == "test" {
+		if chunkIndex == 0 {
+			return 0, dummyList[:]
+		} else {
+			return 1, dummyList[:]
+		}
+	}
+	return 1, dummyList[:]
+}
+
+type chunkHandle int64
+type ReadArgs struct {
+	Handle chunkHandle
+	Offset int64 // precision required by os seek function
+	Length int
+}
+type ReadReturn []byte
+
 // GFS client code that reads file starting at readStart byte for readLength bytes
-func read(fileName string, readStart int64, readLength int) (ReadReturn, error) {
+func Read(fileName string, readStart int64, readLength int) (ReadReturn, error) {
 	// TODO start server in separate processes
-	newServer("/tmp/")
 
 	// Use the assumed chunk size to calculate chunk index and chunk offset
 	index := readStart / (64 * 1024 * 1024)

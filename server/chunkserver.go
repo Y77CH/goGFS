@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
 	"net/rpc"
@@ -23,21 +24,6 @@ type Chunk struct {
 }
 
 func newServer(dataDir string) {
-	// instantiate chunkserver
-	cs := &ChunkServer{
-		dataDir: dataDir,
-		addr:    "127.0.0.1:12345", // TODO dummy IP address
-	}
-	// register and get listener
-	rpc.Register(cs)
-	listener, err := net.Listen("tcp", cs.addr)
-	if err != nil {
-		fmt.Println("ERROR: Server listener start failed. " + err.Error())
-	}
-	// start listener concurrently
-	go func() {
-		rpc.Accept(listener)
-	}()
 }
 
 // RPC
@@ -68,3 +54,23 @@ func (cs *ChunkServer) RPCRead(args ReadArgs, reply *ReadReturn) error {
 }
 
 // Internal
+
+// CMD
+func main() {
+	addr := flag.String("addr", "127.0.0.1:1234", "Specify the address where the chunkserver will be started at.")
+	dataDir := flag.String("dir", "/tmp/", "Specify the directory path where the chunkserver will be reading and storing data.")
+	flag.Parse()
+
+	// instantiate chunkserver
+	cs := &ChunkServer{
+		dataDir: *dataDir,
+		addr:    *addr,
+	}
+	// register and get listener
+	rpc.Register(cs)
+	listener, err := net.Listen("tcp", cs.addr)
+	if err != nil {
+		fmt.Println("ERROR: Server listener start failed. " + err.Error())
+	}
+	rpc.Accept(listener)
+}
