@@ -5,6 +5,7 @@
 - [ ] Implement primary cache
 - [ ] Implement retry (eg. in record append)
 - [ ] **Implement automated E2E tests and unit tests.**
+- [ ] Figure out how serializing mutations is done
 
 ## Refinements
 - [ ] Implement "read from closest" and pipelinging during data push (section 3.2).
