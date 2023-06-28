@@ -8,9 +8,26 @@ import (
 func testRead() {
 	readContent, err := Read("test.txt", 64*1024*1024+1, 4)
 	if err == nil {
-		fmt.Println(readContent)
+		fmt.Println(string(readContent))
 	} else {
-		fmt.Println("Error: Reading Failed")
+		fmt.Println(err.Error())
+	}
+}
+
+func testEasyAppend() {
+	// texts are extracted from Effective Go
+	var data = "Go is a new language. Although it borrows ideas from existing languages, it has unusual properties that make effective Go programs different in character from programs written in its relatives. A straightforward translation of a C++ or Java program into Go is unlikely to produce a satisfactory result—Java programs are written in Java, not Go. On the other hand, thinking about the problem from a Go perspective could produce a successful but quite different program.\n"
+	_, err := RecordAppend("test.txt", []byte(data))
+	if err != nil {
+		fmt.Println("testEasyAppend Failed: error")
+	}
+}
+
+func testEasyWrite() {
+	var data = "TEST"
+	err := Write("test.txt", 67108864, []byte(data))
+	if err != nil {
+		fmt.Println("testEasyWrite Failed: error")
 	}
 }
 
@@ -32,10 +49,7 @@ func testConcAppend() {
 			defer wg.Done()
 			_, err := RecordAppend("test.txt", []byte(data[i]))
 			if err != nil {
-				fmt.Println("ERROR: Append failed")
-			}
-			if err != nil {
-				fmt.Println("ERROR: Read failed")
+				fmt.Println("ERROR: testConcAppend Failed: error")
 			}
 		}(i)
 	}
@@ -49,12 +63,9 @@ func testConcWrite() {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			err := Write("test.txt", i*9, []byte(data[i]))
+			err := Write("test.txt", 67108864+int64(i*9), []byte(data[i]))
 			if err != nil {
-				fmt.Println("ERROR: Append failed")
-			}
-			if err != nil {
-				fmt.Println("ERROR: Read failed")
+				fmt.Println("ERROR: testConcWrite Failed: error")
 			}
 		}(i)
 	}
@@ -62,6 +73,9 @@ func testConcWrite() {
 }
 
 func main() {
-	testConcAppend()
-	testConcWrite()
+	// testRead()
+	// testEasyAppend()
+	testEasyWrite()
+	// testConcAppend()
+	// testConcWrite()
 }

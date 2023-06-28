@@ -4,22 +4,134 @@ This is a Go implementation of the Google File System according to [this famous 
 
 This implementation is a project in my 2023 summer research of distributed system and thus will be in research / educational setting.
 
-Implementation is separated to steps and design for each step is documented in [goGFS.md](goGFS.md) file.
+Implementation is separated to steps and design for each step is documented in the [changelog](#Changelog) section.
 
-There are still some functions that need to be fixed or refinements that can be made, which are available in [TODOs.md](TODOs.md)
+There are still some functions that need to be fixed or refinements that can be made, which are available in [TODO](#TODO) section.
 
 ## Run
+
+### VSCode Integration
+
+An easy way to run the system is by using VSCode's run & debugging function. By opening this folder as a workspace, the `launch.json` I defined will be automatically loaded, and you will see the services I have defined. You can easily run them by clicking each service (before this, you may need to change relevant arguments like data directory, `dir`), and conveniently add breakpoints to debug.
+
+### Manual
+
+You can also run the system through command line.
+
+First start a master server, using the following:
+
+```shell
+go run server/start.go server/chunkserver.go server/master.go server/shared.go -type ms -addr <address> -dir <data directory>
+```
 
 To start a new chunkserver, use the following command:
 
 ```shell
-go run server/chunkserver.go -addr <address> -dir <data directory>
+go run server/start.go server/chunkserver.go server/master.go server/shared.go -type cs -addr <address> -dir <data directory> -master <master address>
 ```
 
 To use the system, call APIs in the `client.go` file in app code (an example app is `app.go`), and run the following:
 
 ```shell
-go run app.go client.go dummy_master.go
+go run app.go client.go
 ```
 
-(for now, the master is not yet developed, so the `dummy_master.go` is used)
+## Changelog
+
+Overall design choices will be documented here; specific technical implementations (eg. whether a variable should be `int64` or `int`) will be found in code comments.
+
+Each version will be self-contained (i.e. runnable).
+
+### goGFS v0.3
+
+Implement a minimal master that can respond to client asking for chunk locations.
+
+In order to implement the above function, the master has to be able to:
+
+* Start up and load metadata (mapping between filename and chunk metadata needs to be available for master to receive chunkserver registration and respond chunk location)
+* Accept chunkserver registration (required for reading)
+
+Due to the fact that I'm creating a master (instead of a dummy one), I will move all server side definitions to a separated file (otherwise, defining all data types in chunkserver / master is not reasonable).
+
+At the same time, because the both master and chunkserver need to be started as single processes, I will need to create a separate start go file as program entrance point.
+
+Because this is a minimal implementation, I won't be adding version number support for now. 
+
+#### Design Considerations
+
+One design that is not explicitly described in the paper is how does the chunkserver know its chunks' version numbers (at startup or reconnecting), and whether this information is stored persistently.
+
+### goGFS v0.2
+
+Implement the record append and write function of chunkserver and relevant part of the client with a dummy master.
+
+#### Workflow of a Write (without Master)
+
+1. Client asks master for primary and secondary replicas. 
+2. Master replies with the primary and secondary replicas.
+   The client caches data for future mutations.
+3. The client pushes the data to all the replicas. 
+   Each chunkserver stores data in an internal LRU buffer cache until data used or aged out.
+4. Once all the replicas acknowledged receiving data, 
+   the client sends a write request to primary where data pushed earlier are identified.
+   The primary assigns consecutive serial numbers to all mutations 
+   and applies mutation to local in the serialized order.
+5. The primary forwards the write to all secondary, 
+   and each secondary applies mutation with the serialized order.
+6. All secondaries reply to primary regarding if they have completed the operation.
+7. The primary replies to the client. If there is any error, the write fails and the client has to retry.
+
+#### Notes
+
+Because I wish to implement client and chunkserver first (which is why current version is `0.x`), 
+the dummy master will always pick the chunkserver at `127.0.0.1:12345` as the primary.
+
+### goGFS v0.1.2
+
+Update the server such that it will handle concurrent read, instead of blocking new requests.
+
+### goGFS v0.1.1
+
+Change the project structure such that servers will be launched separatedly as new processes 
+which better simulates multi-machine distributed system.
+
+#### Notes
+
+This comes at the cost of completely separating the client and server side which leads to the issue that, 
+for example, RPC call and reply data structures have to be redefined.
+However, I do believe that this is acceptable. 
+
+### goGFS v0.1
+
+Implement the read function in chunkserver and relevant part of the client with a dummy master.
+
+#### Workflow of a Read
+
+1. Client calls dummy master with file name, chunk index (file size divided by chunk size) 
+   and dummy master replies with the chunk handle and dummy list of replicas.
+2. Client sends chunk handle and byte range (i.e. starting offset + length of read) to chunkserver.
+3. Chunkserver replies with the corresponding chunk data.
+
+#### Design Considerations
+
+I understand that for a real distributed system, the gfs servers should be started as services 
+(i.e. in another process, and preferrably from other machines). 
+However, for this initial version, I will be starting them only as go routines for simplicity.
+
+Instead of using a custom bit map, or workarounds like `big.Int`, I decided to use `int64` for chunk handle, 
+as there is no real scenario where I need to, for example, set an individual bit or do bit arithmetic.
+
+#### Notes
+
+* RPC parts referred to the Princeton COS418 [slide](https://www.cs.princeton.edu/courses/archive/spring21/cos418/docs/precept3_rpcs_in_go.pdf).
+* Quick Reference: 1 MB = 1024*1024 = 1048576 bytes
+
+## TODO
+
+There are some features / edge cases that are important but may not be implemented before large portion of the work is done.
+
+- [ ] Implement "read from closest" and pipelining during data push (paper 3.2)
+- [ ] Decide and implement retry
+- [ ] Separate the read / write if it is crossing chunk boundary
+- [ ] Implement primary serializing mutations via batching
+- [ ] Structure error handling and logging

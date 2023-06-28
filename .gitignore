@@ -1,4 +1,4 @@
 .idea/*
 data/*
-.vscode/*
 start.sh
+*/__debug*
