@@ -13,6 +13,13 @@
             "args": ["-addr", "127.0.0.1:6666", "-type", "ms", "-dir", "/home/ychen/goGFS/data/test1/"]
         },
         {
+            "name": "User App",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/"
+        },
+        {
             "name": "Chunk Server 6667",
             "type": "go",
             "request": "launch",
@@ -29,11 +36,18 @@
             "args": ["-addr", "127.0.0.1:6668", "-type", "cs", "-dir", "/home/ychen/goGFS/data/test3/", "-master", "127.0.0.1:6666"]
         },
         {
-            "name": "User App",
+            "name": "Chunk Server 6669",
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}/"
-        },
+            "program": "${workspaceFolder}/server/",
+            "args": ["-addr", "127.0.0.1:6669", "-type", "cs", "-dir", "/home/ychen/goGFS/data/test4/", "-master", "127.0.0.1:6666"]
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Servers",
+            "configurations": ["Chunk Server 6667", "Chunk Server 6668", "Chunk Server 6669"]
+        }
     ]
 }

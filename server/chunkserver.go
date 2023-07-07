@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/rpc"
 	"strconv"
@@ -81,6 +83,11 @@ func (cs *ChunkServer) PrimaryApplyAppend(args PrimaryApplyAppendArg, reply *Pri
 	}
 	fmt.Println("INFO: Write to File Success")
 	*reply = PrimaryApplyAppendReturn(fInfo.Size())
+	cs.incVersion(args.AppendBufferIDs[0].Handle)
+	if err != nil {
+		fmt.Println("ERROR: inc version failed")
+		return err
+	}
 
 	// forward apply append to all replicas
 	for i := 1; i < len(args.AppendBufferIDs); i++ {
@@ -125,6 +132,11 @@ func (cs *ChunkServer) PrimaryApplyWrite(args PrimaryApplyWriteArg, reply *Prima
 	}
 	fmt.Println("INFO: Write to File Success")
 	*reply = PrimaryApplyWriteReturn(0)
+	cs.incVersion(args.WriteBufferIDs[0].Handle)
+	if err != nil {
+		fmt.Println("ERROR: inc version failed")
+		return err
+	}
 
 	// forward apply append to all replicas
 	for i := 1; i < len(args.Replicas); i++ {
@@ -170,11 +182,79 @@ func (cs *ChunkServer) ApplyMutate(args ApplyMutationArg, reply *ApplyMutationRe
 		return errors.New("write to file failed")
 	}
 	fmt.Println("INFO: Write to File Success")
+	err = cs.incVersion(args.DataBufferID.Handle)
+	if err != nil {
+		fmt.Println("ERROR: inc version failed")
+		return err
+	}
 
 	return nil
 }
 
+type chunkVersionMap map[handle]int // handle : version
+
+// Called by master to check chunk and its version
+func (cs *ChunkServer) HeartBeat(args HeartBeatArg, reply *HeartBeatReturn) error {
+	versions, err := cs.loadVersion()
+	if err != nil {
+		return err
+	}
+	*reply = HeartBeatReturn(versions[handle(args)])
+	return nil
+}
+
 // INTERNAL FUNCTIONS ==========================================
+
+// Called by chunkserver to load its version info
+func (cs *ChunkServer) loadVersion() (chunkVersionMap, error) {
+	_, err := os.Stat(cs.dataDir + "versions.json")
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// create mapping file if not exist
+			fmt.Println("INFO: Create new version mapping file")
+			_, err = os.Create(cs.dataDir + "versions.json")
+			if err != nil {
+				return nil, err
+			}
+			return chunkVersionMap{}, nil
+		} else {
+			return nil, err
+		}
+	} else {
+		// load mapping
+		jsonVal, err := ioutil.ReadFile(cs.dataDir + "versions.json") // it's reasonable to read all at once due to the small size of metadata
+		if err != nil {
+			fmt.Println("ERROR: Read version file failed")
+			return nil, err
+		}
+		var versions chunkVersionMap
+		json.Unmarshal(jsonVal, &versions)
+		return versions, nil
+	}
+}
+
+// Called by chunkserver to update versions
+func (cs *ChunkServer) incVersion(h handle) error {
+	versions, err := cs.loadVersion()
+	if err != nil {
+		return err
+	}
+	versions[h] += 1
+	jsonVer, err := json.Marshal(versions)
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(cs.dataDir + "versions.json")
+	defer f.Close()
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(jsonVer)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
 // Called on bufferID to determine equality
 func (id *bufferID) equal(toCompare bufferID) bool {
@@ -210,23 +290,27 @@ func (cs *ChunkServer) register(master string) error {
 	}
 
 	// Scan for available chunks
-	handles := map[handle]int{}
-	dir, err := os.ReadDir(cs.dataDir)
+	// handles := map[handle]int{}
+	// dir, err := os.ReadDir(cs.dataDir)
+	// if err != nil {
+	// 	return err
+	// }
+	// for _, f := range dir {
+	// 	h, err := strconv.Atoi(f.Name())
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	handles[handle(h)] = 0 // version number placeholder
+	// }
+	vmap, err := cs.loadVersion()
 	if err != nil {
 		return err
-	}
-	for _, f := range dir {
-		h, err := strconv.Atoi(f.Name())
-		if err != nil {
-			return err
-		}
-		handles[handle(h)] = 0 // version number placeholder
 	}
 
 	// Prepare arguments of registration
 	regArg := RegisterArgs{
 		ChunkserverAddr: cs.addr,
-		Handles:         handles,
+		Handles:         vmap,
 	}
 	var regRet RegisterReturn
 	err = client.Call("MasterServer.Register", regArg, &regRet)

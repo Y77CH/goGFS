@@ -105,3 +105,7 @@ type ApplyMutationArg struct {
 }
 
 type ApplyMutationReturn int // placeholder
+
+type HeartBeatArg handle
+
+type HeartBeatReturn int // version number

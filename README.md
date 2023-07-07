@@ -42,6 +42,29 @@ Overall design choices will be documented here; specific technical implementatio
 
 Each version will be self-contained (i.e. runnable).
 
+General roadmap (may change): 
+
+* In 0.1.X and 0.2.X, I have implemented the chunkserver.
+* In 0.3.X, I'm developing the master, but only its core function: maintain metadata. This is an important design of GFS, because it separates data flow and control flow.
+* After that, in 0.4.X, I will develop lease mechanism. I will pay special attention to making the system satisfy given consistency guarantee. This is a core feature, because it (to some extent) solves the concurrent write issue which may lead to data inconsistency (different write order).
+* Next, in 0.5.X, I will add the `create` and `delete` calls which will require the namespace manager and relevant locking mechanism.
+* In the 1.0 version, I will be completing the recovery feature. At this version, even though the system is still not the final product described in the paper, it has all important features.
+* More features: garbage collection, re-replication, rebalancing, stale detection, master replication, checksumming.
+
+### goGFS v0.3.1
+
+Enhance the master: a core feature of master is to maintain metadata. 
+
+In this version, I will enable the master to regularly make heartbeat rpc call to poll chunk info from known chunkservers.
+
+At the same time, in order for the heartbeat messages to be useful, version number will be added.
+
+Because the paper did not make explicit claims about how does the version number work, I will note down my design here:
+
+* Chunkserver starts -> load persistent `versions.json` -> register to master
+* Chunkserver writes successful -> write to `versions.json`
+* Master heartbeats chunkserver -> chunkserver loads `versions.json` and reply
+
 ### goGFS v0.3
 
 Implement a minimal master that can respond to client asking for chunk locations.

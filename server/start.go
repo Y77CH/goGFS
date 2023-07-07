@@ -30,9 +30,10 @@ func main() {
 				// valid arguments
 				fmt.Println("Starting master server")
 				err := startMaster(*addr, *dir)
-				fmt.Println(err.Error())
+				if err != nil {
+					fmt.Println(err.Error())
+				}
 			}
 		}
 	}
-	fmt.Println("Invalid option")
 }

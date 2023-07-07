@@ -73,9 +73,9 @@ func testConcWrite() {
 }
 
 func main() {
-	// testRead()
 	// testEasyAppend()
 	testEasyWrite()
+	testRead()
 	// testConcAppend()
 	// testConcWrite()
 }
