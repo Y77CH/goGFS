@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sync"
+	"time"
 )
 
 func testRead() {
@@ -75,7 +76,9 @@ func testConcWrite() {
 func main() {
 	// testEasyAppend()
 	testEasyWrite()
+	time.Sleep(time.Second * 3)
 	testRead()
-	// testConcAppend()
+	time.Sleep(time.Second * 12)
+	testEasyAppend()
 	// testConcWrite()
 }

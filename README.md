@@ -45,11 +45,31 @@ Each version will be self-contained (i.e. runnable).
 General roadmap (may change): 
 
 * In 0.1.X and 0.2.X, I have implemented the chunkserver.
-* In 0.3.X, I'm developing the master, but only its core function: maintain metadata. This is an important design of GFS, because it separates data flow and control flow.
-* After that, in 0.4.X, I will develop lease mechanism. I will pay special attention to making the system satisfy given consistency guarantee. This is a core feature, because it (to some extent) solves the concurrent write issue which may lead to data inconsistency (different write order).
+* In 0.3.X, I have developed the master, but only its core function: maintain metadata. This is an important design of GFS, because it separates data flow and control flow.
+* After that, in 0.4.X, I am developing the lease mechanism. This is a core feature, because it (to some extent) solves the concurrent write issue which may lead to data inconsistency (different write order).
 * Next, in 0.5.X, I will add the `create` and `delete` calls which will require the namespace manager and relevant locking mechanism.
 * In the 1.0 version, I will be completing the recovery feature. At this version, even though the system is still not the final product described in the paper, it has all important features.
 * More features: garbage collection, re-replication, rebalancing, stale detection, master replication, checksumming.
+
+### goGFS v0.4
+
+This function is actually half developed in 0.2 where I have already implemented the chunkserver side.
+
+The remaining part is essentially four tasks:
+
+* Master reassigns primary if lease expired
+* Client sends all requests to primary until lease expires
+* Chunkserver asks for extension in heartbeat if  receiving requests when lease expire
+
+Specification on primary assignment: the only condition to check is expiration. If the lease has been granted but expired, then the master should reset lease expiration to now+10s; if never granted, the lease expiration time will be zero time, which can also viewed as lease expired (but long ago).
+
+A primary principle I followed when designing chunkserver is keeping in-memory data structures minimum, as it will increase the complexity of locking. Therefore, I kept lease expiration as an argument in each request which will therefore avoid chunkserver, client, master all to keep record of lease expiration.
+
+#### Test Explained
+
+* Client starts a read call. Because no primary is recorded (server just started), it will ask for primary before write.
+* Then the client waits for 3 seconds (can be arbitrary value), and starts a read. Because the primary has been recorded, and not yet expired, the primary should request the same primary.
+* Next, the client waits for 12 seconds and starts an append. Because the recorded primary has expired, the client should ask the master again for a new primary (can be same server but with different expire time).
 
 ### goGFS v0.3.1
 
@@ -158,3 +178,4 @@ There are some features / edge cases that are important but may not be implement
 - [ ] Separate the read / write if it is crossing chunk boundary
 - [ ] Implement primary serializing mutations via batching
 - [ ] Structure error handling and logging
+- [ ] Figure out a way to test lease extension

@@ -6,14 +6,15 @@ import (
 )
 
 // SERVER INTERNAL =============================================
+// chunkserver, masterserver defined here for start.go
 
 // TODO distinguish volatile vs non volatile
 type chunkMeta struct {
 	handle  handle
 	servers []string
 	version int
-	primary string // address of primary
-	lease   time.Time
+	primary string    // address of primary
+	lease   time.Time // time when the lease ends
 }
 
 type MasterServer struct {
@@ -23,9 +24,10 @@ type MasterServer struct {
 }
 
 type ChunkServer struct {
-	dataDir string
-	addr    string
-	cache   *bufferCache
+	dataDir        string
+	addr           string
+	cache          *bufferCache
+	extensionBatch []handle
 }
 
 type handle int64
@@ -65,9 +67,11 @@ type GetChunkArgs struct {
 type GetChunkReturn struct {
 	Handle       handle
 	Chunkservers []string
+	Expire       time.Time
 }
 
 type ReadArgs struct {
+	expire time.Time
 	Handle handle
 	Offset int64 // precision required by os seek function
 	Length int
@@ -84,6 +88,7 @@ type DataPushReturn struct {
 }
 
 type PrimaryApplyAppendArg struct {
+	expire          time.Time
 	Replicas        []string
 	AppendBufferIDs []bufferID
 }
@@ -91,6 +96,7 @@ type PrimaryApplyAppendArg struct {
 type PrimaryApplyAppendReturn int // offset
 
 type PrimaryApplyWriteArg struct {
+	expire         time.Time
 	Replicas       []string
 	WriteBufferIDs []bufferID
 	ChunkOffset    int64
@@ -108,4 +114,7 @@ type ApplyMutationReturn int // placeholder
 
 type HeartBeatArg handle
 
-type HeartBeatReturn int // version number
+type HeartBeatReturn struct {
+	Version     int
+	LeaseExtend bool
+}

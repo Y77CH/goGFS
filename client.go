@@ -35,12 +35,14 @@ type GetChunkArgs struct {
 type GetChunkReturn struct {
 	Handle       handle
 	Chunkservers []string
+	Expire       time.Time
 }
 
 type ReadArgs struct {
 	Handle handle
 	Offset int64 // precision required by os seek function
 	Length int
+	expire time.Time
 }
 type ReadReturn []byte
 
@@ -56,6 +58,7 @@ type DataPushReturn struct {
 type PrimaryApplyAppendArg struct {
 	Replicas        []string
 	AppendBufferIDs []bufferID
+	expire          time.Time
 }
 
 type PrimaryApplyAppendReturn int // offset
@@ -65,9 +68,12 @@ type PrimaryApplyWriteArg struct {
 	WriteBufferIDs []bufferID
 	ChunkOffset    int64
 	ChunkIndex     int
+	expire         time.Time
 }
 
 type PrimaryApplyWriteReturn int // placeholder
+
+var locations map[string]map[int64]GetChunkReturn // filename : {index : {handle, servers, expire}}
 
 // PUBLIC API ==================================================
 
@@ -77,24 +83,35 @@ func Read(fileName string, readStart int64, readLength int) (ReadReturn, error) 
 	index := readStart / (64 * 1024 * 1024)
 	var chunkOffset int64 = readStart % (64 * 1024 * 1024)
 	fmt.Printf("INFO: Read started: File %s, starting at byte %d; Will read chunk %d, starting at byte %d\n", fileName, readStart, index, chunkOffset)
-	// Get chunk handle and list of replicas from master
-	client, err := rpc.Dial("tcp", MASTER_ADDR)
-	if err != nil {
-		return nil, err
+	// Get chunk handle and list of replicas from master if necessary
+	getChunkReturn, exist := locations[fileName][index]
+	if !exist || getChunkReturn.Expire.Before(time.Now()) {
+		// no entry or expired entry for given file and index, ask master
+		client, err := rpc.Dial("tcp", MASTER_ADDR)
+		if err != nil {
+			return nil, err
+		}
+		getChunkArgs := GetChunkArgs{
+			FileName:   fileName,
+			ChunkIndex: index,
+		}
+		getChunkReturn = GetChunkReturn{}
+		err = client.Call("MasterServer.GetChunkHandleAndLocations", getChunkArgs, &getChunkReturn)
+		if err != nil {
+			return nil, err
+		}
+		if locations == nil {
+			locations = map[string]map[int64]GetChunkReturn{}
+		}
+		if locations[getChunkArgs.FileName] == nil {
+			locations[getChunkArgs.FileName] = map[int64]GetChunkReturn{}
+		}
+		locations[getChunkArgs.FileName][getChunkArgs.ChunkIndex] = getChunkReturn // add to known locations
+		fmt.Printf("INFO: Primary %s will expire at %d:%d:%d\n", getChunkReturn.Chunkservers[0], getChunkReturn.Expire.Hour(), getChunkReturn.Expire.Minute(), getChunkReturn.Expire.Second())
 	}
-	getChunkArgs := GetChunkArgs{
-		FileName:   fileName,
-		ChunkIndex: index,
-	}
-	getChunkReturn := GetChunkReturn{}
-	err = client.Call("MasterServer.GetChunkHandleAndLocations", getChunkArgs, &getChunkReturn)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println("INFO: Read Location Replied from Master")
 
 	// Call chunkserver for read
-	client, err = rpc.Dial("tcp", getChunkReturn.Chunkservers[0])
+	client, err := rpc.Dial("tcp", getChunkReturn.Chunkservers[0])
 	if err != nil {
 		fmt.Println("ERROR: " + err.Error())
 	}
@@ -102,6 +119,7 @@ func Read(fileName string, readStart int64, readLength int) (ReadReturn, error) 
 		Handle: getChunkReturn.Handle,
 		Offset: chunkOffset,
 		Length: readLength,
+		expire: getChunkReturn.Expire,
 	}
 	readReturn := []byte{}
 	err = client.Call("ChunkServer.Read", readArgs, &readReturn)
@@ -115,29 +133,44 @@ func Read(fileName string, readStart int64, readLength int) (ReadReturn, error) 
 
 // GFS client code that appends to the end of file.
 func RecordAppend(fileName string, data []byte) (int, error) {
-	// request chunk handle and replicas location
-	client, err := rpc.Dial("tcp", MASTER_ADDR)
-	if err != nil {
-		return -1, err
+	// Get chunk handle and list of replicas from master if necessary
+	getChunkReturn, exist := locations[fileName][-1]
+	if !exist || getChunkReturn.Expire.Before(time.Now()) {
+		client, err := rpc.Dial("tcp", MASTER_ADDR)
+		if err != nil {
+			return -1, err
+		}
+		getChunkArgs := GetChunkArgs{
+			FileName:   fileName,
+			ChunkIndex: -1,
+		}
+		getChunkReturn = GetChunkReturn{}
+		err = client.Call("MasterServer.GetChunkHandleAndLocations", getChunkArgs, &getChunkReturn)
+		if err != nil {
+			return -1, err
+		}
+		if locations == nil {
+			locations = map[string]map[int64]GetChunkReturn{}
+		}
+		if locations[getChunkArgs.FileName] == nil {
+			locations[getChunkArgs.FileName] = map[int64]GetChunkReturn{}
+		}
+		locations[getChunkArgs.FileName][getChunkArgs.ChunkIndex] = getChunkReturn // add to known locations
+		fmt.Printf("INFO: Primary %s will expire at %d:%d:%d\n", getChunkReturn.Chunkservers[0], getChunkReturn.Expire.Hour(), getChunkReturn.Expire.Minute(), getChunkReturn.Expire.Second())
+		fmt.Printf("INFO: data will be appended at the end of %s, (chunk %d) on %d replicas \n", fileName, getChunkReturn.Handle, len(getChunkReturn.Chunkservers))
 	}
-	getChunkArgs := GetChunkArgs{
-		FileName:   fileName,
-		ChunkIndex: -1,
-	}
-	getChunkReturn := GetChunkReturn{}
-	err = client.Call("MasterServer.GetChunkHandleAndLocations", getChunkArgs, &getChunkReturn)
-	if err != nil {
-		return -1, err
-	}
-	fmt.Printf("INFO: data will be appended at the end of %s, (chunk %d) on %d replicas \n", fileName, getChunkReturn.Handle, len(getChunkReturn.Chunkservers))
+
 	// push data and prepare append
 	var applyAppendArg PrimaryApplyAppendArg
+	var err error
 	applyAppendArg.AppendBufferIDs, err = push(getChunkReturn.Chunkservers, getChunkReturn.Handle, data)
 	if err != nil {
 		fmt.Println("ERROR: Data Push failed")
 	}
+
 	// apply append
 	applyAppendArg.Replicas = getChunkReturn.Chunkservers
+	applyAppendArg.expire = getChunkReturn.Expire
 	var applyAppendReturn PrimaryApplyAppendReturn
 	primary, err := rpc.Dial("tcp", getChunkReturn.Chunkservers[0])
 	if err != nil {
@@ -156,22 +189,36 @@ func RecordAppend(fileName string, data []byte) (int, error) {
 func Write(fileName string, offset int64, data []byte) error {
 	index := offset / (64 * 1024 * 1024)
 	var chunkOffset int64 = offset % (64 * 1024 * 1024)
-	// request chunk handle and replicas location
-	client, err := rpc.Dial("tcp", MASTER_ADDR)
-	if err != nil {
-		return err
+
+	// Get chunk handle and list of replicas from master if necessary
+	getChunkReturn, exist := locations[fileName][index]
+	if !exist || getChunkReturn.Expire.Before(time.Now()) {
+		client, err := rpc.Dial("tcp", MASTER_ADDR)
+		if err != nil {
+			return err
+		}
+		getChunkArgs := GetChunkArgs{
+			FileName:   fileName,
+			ChunkIndex: index,
+		}
+		getChunkReturn = GetChunkReturn{}
+		err = client.Call("MasterServer.GetChunkHandleAndLocations", getChunkArgs, &getChunkReturn)
+		if err != nil {
+			return err
+		}
+		if locations == nil {
+			locations = map[string]map[int64]GetChunkReturn{}
+		}
+		if locations[getChunkArgs.FileName] == nil {
+			locations[getChunkArgs.FileName] = map[int64]GetChunkReturn{}
+		}
+		locations[getChunkArgs.FileName][getChunkArgs.ChunkIndex] = getChunkReturn // add to known locations
+		fmt.Printf("INFO: Primary %s will expire at %d:%d:%d\n", getChunkReturn.Chunkservers[0], getChunkReturn.Expire.Hour(), getChunkReturn.Expire.Minute(), getChunkReturn.Expire.Second())
 	}
-	getChunkArgs := GetChunkArgs{
-		FileName:   fileName,
-		ChunkIndex: index,
-	}
-	getChunkReturn := GetChunkReturn{}
-	err = client.Call("MasterServer.GetChunkHandleAndLocations", getChunkArgs, &getChunkReturn)
-	if err != nil {
-		return err
-	}
+
 	// push data and prepare write
 	var applyWriteArg PrimaryApplyWriteArg
+	var err error
 	applyWriteArg.WriteBufferIDs, err = push(getChunkReturn.Chunkservers, getChunkReturn.Handle, data)
 	// for i := range applyWriteArg.AppendBufferIDs {
 	// 	fmt.Printf("TEMP: Apply Write BufferIDs: ID: %d", i)
@@ -183,6 +230,7 @@ func Write(fileName string, offset int64, data []byte) error {
 	applyWriteArg.Replicas = getChunkReturn.Chunkservers
 	applyWriteArg.ChunkIndex = int(index)
 	applyWriteArg.ChunkOffset = int64(chunkOffset)
+	applyWriteArg.expire = getChunkReturn.Expire
 	var applyWriteReturn PrimaryApplyWriteReturn
 	primary, err := rpc.Dial("tcp", getChunkReturn.Chunkservers[0])
 	if err != nil {

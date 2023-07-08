@@ -12,7 +12,8 @@ import (
 	"time"
 )
 
-const HEARTBEAT_INTV = time.Second * 3
+const HEARTBEAT_INTV = time.Second * 1
+const LEASE_DURATION = time.Second * 10
 
 type persistMeta struct {
 	Handle  handle // fields exported due to use of Marshal
@@ -34,6 +35,11 @@ func (ms *MasterServer) GetChunkHandleAndLocations(args GetChunkArgs, chunkRetur
 	}
 	chunkReturn.Handle = meta.handle
 	chunkReturn.Chunkservers = meta.servers
+	// regrants lease if expired
+	if meta.lease.Before(time.Now()) {
+		meta.lease = time.Now().Add(LEASE_DURATION)
+	}
+	chunkReturn.Expire = meta.lease
 	return nil
 }
 
@@ -112,7 +118,7 @@ func (ms *MasterServer) heartBeat() error {
 				}
 
 				// load to memory and write to metadata file
-				ms.chunkMapping[f][m].version = int(ret)
+				ms.chunkMapping[f][m].version = int(ret.Version)
 			}
 		}
 	}

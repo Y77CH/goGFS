@@ -16,6 +16,9 @@ import (
 
 func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReturn) error {
 	fmt.Println("INFO: RPCRead invoked")
+	if args.expire.Before(time.Now()) {
+		cs.extensionBatch = append(cs.extensionBatch, args.Handle)
+	}
 
 	// open file
 	f, err := os.Open(cs.dataDir + fmt.Sprintf("%064d", args.Handle)) // pad int with 0s
@@ -57,6 +60,10 @@ func (cs *ChunkServer) DataPush(args DataPushArg, reply *DataPushReturn) error {
 
 // Client calls this function in primary to start append
 func (cs *ChunkServer) PrimaryApplyAppend(args PrimaryApplyAppendArg, reply *PrimaryApplyAppendReturn) error {
+	if args.expire.Before(time.Now()) {
+		cs.extensionBatch = append(cs.extensionBatch, args.AppendBufferIDs[0].Handle)
+	}
+
 	// TODO padding when necessary
 	fmt.Println("INFO: Apply Append RPC invoked at primary")
 	// retrieve data from buffer
@@ -113,6 +120,7 @@ func (cs *ChunkServer) PrimaryApplyAppend(args PrimaryApplyAppendArg, reply *Pri
 
 // Client calls this function to start applying write
 func (cs *ChunkServer) PrimaryApplyWrite(args PrimaryApplyWriteArg, reply *PrimaryApplyWriteReturn) error {
+	cs.extensionBatch = append(cs.extensionBatch, args.WriteBufferIDs[0].Handle)
 	toWrite, err := cs.getBuffer(args.WriteBufferIDs[0])
 	if err != nil {
 		fmt.Println("ERROR: Cache retrieval failed.")
@@ -199,7 +207,14 @@ func (cs *ChunkServer) HeartBeat(args HeartBeatArg, reply *HeartBeatReturn) erro
 	if err != nil {
 		return err
 	}
-	*reply = HeartBeatReturn(versions[handle(args)])
+	*reply = HeartBeatReturn{Version: versions[handle(args)]}
+	for i := range cs.extensionBatch {
+		if cs.extensionBatch[i] == handle(args) {
+			reply.LeaseExtend = true
+			cs.extensionBatch[i] = cs.extensionBatch[len(cs.extensionBatch)-1] // move the element to end
+			cs.extensionBatch = cs.extensionBatch[:len(cs.extensionBatch)-1]   // remove the last element
+		}
+	}
 	return nil
 }
 
