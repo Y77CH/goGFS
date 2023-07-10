@@ -218,6 +218,27 @@ func (cs *ChunkServer) HeartBeat(args HeartBeatArg, reply *HeartBeatReturn) erro
 	return nil
 }
 
+func (cs *ChunkServer) NewChunk(args NewChunkArgs, ret *NewChunkReturn) error {
+	// create new chunk file
+	_, err := os.Create(cs.dataDir + fmt.Sprintf("%064d", uint64(args)))
+	if err != nil {
+		fmt.Println("ERROR: create new chunk file failed")
+		return err
+	}
+
+	cs.incVersion(handle(args))
+
+	return nil
+}
+
+func (cs *ChunkServer) DeleteChunk(args DelChunkArgs, ret *DelChunkReturn) error {
+	err := os.Rename(cs.dataDir+fmt.Sprintf("%064d", uint64(args)), cs.dataDir+"."+fmt.Sprintf("%064d", uint64(args)))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // INTERNAL FUNCTIONS ==========================================
 
 // Called by chunkserver to load its version info
@@ -253,6 +274,9 @@ func (cs *ChunkServer) incVersion(h handle) error {
 	versions, err := cs.loadVersion()
 	if err != nil {
 		return err
+	}
+	if versions == nil {
+		versions = chunkVersionMap{}
 	}
 	versions[h] += 1
 	jsonVer, err := json.Marshal(versions)

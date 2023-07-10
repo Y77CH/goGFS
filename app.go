@@ -3,11 +3,10 @@ package main
 import (
 	"fmt"
 	"sync"
-	"time"
 )
 
 func testRead() {
-	readContent, err := Read("test.txt", 64*1024*1024+1, 4)
+	readContent, err := Read("/home/ychen/test3.txt", 0, 4)
 	if err == nil {
 		fmt.Println(string(readContent))
 	} else {
@@ -18,17 +17,19 @@ func testRead() {
 func testEasyAppend() {
 	// texts are extracted from Effective Go
 	var data = "Go is a new language. Although it borrows ideas from existing languages, it has unusual properties that make effective Go programs different in character from programs written in its relatives. A straightforward translation of a C++ or Java program into Go is unlikely to produce a satisfactory result—Java programs are written in Java, not Go. On the other hand, thinking about the problem from a Go perspective could produce a successful but quite different program.\n"
-	_, err := RecordAppend("test.txt", []byte(data))
+	_, err := RecordAppend("/home/ychen/test.txt", []byte(data))
 	if err != nil {
 		fmt.Println("testEasyAppend Failed: error")
+		fmt.Println(err)
 	}
 }
 
 func testEasyWrite() {
 	var data = "TEST"
-	err := Write("test.txt", 67108864, []byte(data))
+	err := Write("/home/ychen/test2.txt", 0, []byte(data))
 	if err != nil {
 		fmt.Println("testEasyWrite Failed: error")
+		fmt.Println(err)
 	}
 }
 
@@ -73,12 +74,31 @@ func testConcWrite() {
 	wg.Wait()
 }
 
+func testCreate() {
+	var filename = "/home/ychen/test.txt"
+	err := Create(filename)
+	if err != nil {
+		fmt.Println(err)
+	}
+	filename = "/home/ychen/test2.txt"
+	Create(filename)
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func testDelete() {
+	var filename = "/home/ychen/test3.txt"
+	err := Delete(filename)
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
 func main() {
+	// testCreate()
 	// testEasyAppend()
-	testEasyWrite()
-	time.Sleep(time.Second * 3)
-	testRead()
-	time.Sleep(time.Second * 12)
-	testEasyAppend()
-	// testConcWrite()
+	// testEasyWrite()
+	// testRead()
+	testDelete()
 }

@@ -46,10 +46,16 @@ General roadmap (may change):
 
 * In 0.1.X and 0.2.X, I have implemented the chunkserver.
 * In 0.3.X, I have developed the master, but only its core function: maintain metadata. This is an important design of GFS, because it separates data flow and control flow.
-* After that, in 0.4.X, I am developing the lease mechanism. This is a core feature, because it (to some extent) solves the concurrent write issue which may lead to data inconsistency (different write order).
-* Next, in 0.5.X, I will add the `create` and `delete` calls which will require the namespace manager and relevant locking mechanism.
+* After that, in 0.4.X, I have developed the lease mechanism. This is a core feature, because it (to some extent) solves the concurrent write issue which may lead to data inconsistency (different write order).
+* Next, in 0.5.X, I'm adding the `create` and `delete` calls which will require the namespace manager and relevant locking mechanism.
 * In the 1.0 version, I will be completing the recovery feature. At this version, even though the system is still not the final product described in the paper, it has all important features.
 * More features: garbage collection, re-replication, rebalancing, stale detection, master replication, checksumming.
+
+### goGFS v0.5
+
+In this version, I have developed a minimal version of create and delete where the namespace manager is not yet involved.
+
+(Bug Fix) One problem that I did not notice is that when the system first starts, the master will not record chunkservers even if they register. Because the master stores servers in a map where filename is the key, servers that do not have any file will not be recorded in the map. To address this issue, I created a special entry in the chunk mappings stored by master: the master will have an empty string (`""`) key which is reserved to hold all the idle chunkservers.
 
 ### goGFS v0.4
 

@@ -11,7 +11,7 @@ import (
 
 const MASTER_ADDR = "127.0.0.1:6666"
 
-type handle int64
+type handle uint64
 
 type bufferID struct {
 	Handle    handle
@@ -72,6 +72,14 @@ type PrimaryApplyWriteArg struct {
 }
 
 type PrimaryApplyWriteReturn int // placeholder
+
+type CreateArgs string // absolute path
+
+type CreateReturn int // placeholder
+
+type DelArgs string // absolute path
+
+type DelReturn int // placeholder
 
 var locations map[string]map[int64]GetChunkReturn // filename : {index : {handle, servers, expire}}
 
@@ -239,6 +247,36 @@ func Write(fileName string, offset int64, data []byte) error {
 	err = primary.Call("ChunkServer.PrimaryApplyWrite", applyWriteArg, &applyWriteReturn)
 	if err != nil {
 		fmt.Println("ERROR: Apply Write fails: " + err.Error())
+		return err
+	}
+	return nil
+}
+
+func Create(filename string) error {
+	// TODO Reuse master rpc client
+	client, err := rpc.Dial("tcp", MASTER_ADDR)
+	if err != nil {
+		return err
+	}
+	arg := CreateArgs(filename)
+	ret := CreateReturn(0)
+	err = client.Call("MasterServer.Create", arg, &ret)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func Delete(filename string) error {
+	// TODO Reuse master rpc client
+	client, err := rpc.Dial("tcp", MASTER_ADDR)
+	if err != nil {
+		return err
+	}
+	arg := DelArgs(filename)
+	ret := DelReturn(0)
+	err = client.Call("MasterServer.Delete", arg, &ret)
+	if err != nil {
 		return err
 	}
 	return nil

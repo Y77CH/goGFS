@@ -8,7 +8,6 @@ import (
 // SERVER INTERNAL =============================================
 // chunkserver, masterserver defined here for start.go
 
-// TODO distinguish volatile vs non volatile
 type chunkMeta struct {
 	handle  handle
 	servers []string
@@ -30,7 +29,7 @@ type ChunkServer struct {
 	extensionBatch []handle
 }
 
-type handle int64
+type handle uint64
 
 // {handle, timestamp} : byte
 type bufferCache struct {
@@ -118,3 +117,19 @@ type HeartBeatReturn struct {
 	Version     int
 	LeaseExtend bool
 }
+
+type CreateArgs string // absolute path
+
+type CreateReturn int // placeholder
+
+type NewChunkArgs handle
+
+type NewChunkReturn int // placeholder
+
+type DelArgs string // absolute path
+
+type DelReturn int // placeholder
+
+type DelChunkArgs handle
+
+type DelChunkReturn int // placeholder
