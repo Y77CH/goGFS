@@ -21,7 +21,7 @@ func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReturn) error {
 	}
 
 	// open file
-	f, err := os.Open(cs.dataDir + fmt.Sprintf("%064d", args.Handle)) // pad int with 0s
+	f, err := os.Open(cs.dataDir + strconv.FormatUint(uint64(args.Handle), 10))
 	if err != nil {
 		fmt.Println("ERROR: Open file failed")
 		return err
@@ -74,7 +74,7 @@ func (cs *ChunkServer) PrimaryApplyAppend(args PrimaryApplyAppendArg, reply *Pri
 	}
 
 	// apply append data to local and record offset of write
-	f, err := os.OpenFile(cs.dataDir+fmt.Sprintf("%064d", args.AppendBufferIDs[0].Handle), os.O_WRONLY, os.ModeAppend)
+	f, err := os.OpenFile(cs.dataDir+strconv.FormatUint(uint64(args.AppendBufferIDs[0].Handle), 10), os.O_WRONLY, os.ModeAppend)
 	defer f.Close()
 	if err != nil {
 		fmt.Println("ERROR: open file failed")
@@ -128,7 +128,7 @@ func (cs *ChunkServer) PrimaryApplyWrite(args PrimaryApplyWriteArg, reply *Prima
 	}
 
 	// apply writing data to local
-	f, err := os.OpenFile(cs.dataDir+fmt.Sprintf("%064d", args.WriteBufferIDs[0].Handle), os.O_WRONLY, os.ModeAppend)
+	f, err := os.OpenFile(cs.dataDir+strconv.FormatUint(uint64(args.WriteBufferIDs[0].Handle), 10), os.O_WRONLY, os.ModeAppend)
 	defer f.Close()
 	if err != nil {
 		fmt.Println("ERROR: open file failed")
@@ -179,7 +179,7 @@ func (cs *ChunkServer) ApplyMutate(args ApplyMutationArg, reply *ApplyMutationRe
 	}
 
 	// apply append data to local and record offset of write
-	f, err := os.OpenFile(cs.dataDir+fmt.Sprintf("%064d", args.DataBufferID.Handle), os.O_WRONLY, os.ModeAppend)
+	f, err := os.OpenFile(cs.dataDir+strconv.FormatUint(uint64(args.DataBufferID.Handle), 10), os.O_WRONLY, os.ModeAppend)
 	defer f.Close()
 	if err != nil {
 		fmt.Println("ERROR: open file failed")
@@ -215,12 +215,13 @@ func (cs *ChunkServer) HeartBeat(args HeartBeatArg, reply *HeartBeatReturn) erro
 			cs.extensionBatch = cs.extensionBatch[:len(cs.extensionBatch)-1]   // remove the last element
 		}
 	}
+	cs.lastHeatBeat = time.Now()
 	return nil
 }
 
 func (cs *ChunkServer) NewChunk(args NewChunkArgs, ret *NewChunkReturn) error {
 	// create new chunk file
-	_, err := os.Create(cs.dataDir + fmt.Sprintf("%064d", uint64(args)))
+	_, err := os.Create(cs.dataDir + strconv.FormatUint(uint64(args), 10))
 	if err != nil {
 		fmt.Println("ERROR: create new chunk file failed")
 		return err
@@ -232,7 +233,7 @@ func (cs *ChunkServer) NewChunk(args NewChunkArgs, ret *NewChunkReturn) error {
 }
 
 func (cs *ChunkServer) DeleteChunk(args DelChunkArgs, ret *DelChunkReturn) error {
-	err := os.Rename(cs.dataDir+fmt.Sprintf("%064d", uint64(args)), cs.dataDir+"."+fmt.Sprintf("%064d", uint64(args)))
+	err := os.Rename(cs.dataDir+strconv.FormatUint(uint64(args), 10), cs.dataDir+"."+strconv.FormatUint(uint64(args), 10))
 	if err != nil {
 		return err
 	}
@@ -381,17 +382,41 @@ func startChunkServer(addr string, dataDir string, master string) error {
 	}
 
 	// register to master
-	err = cs.register(master)
-	if err != nil {
-		return err
-	}
+	cs.register(master) // no need to check error; will retry below
 
+	wg := new(sync.WaitGroup)
+	wg.Add(2)
 	// concurrently handle requests
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			continue
+	go func(wg *sync.WaitGroup) {
+		defer wg.Done()
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				continue
+			}
+			go rpc.ServeConn(conn)
 		}
-		go rpc.ServeConn(conn)
-	}
+	}(wg)
+
+	// try reconnecting to master, when no heartbeat for a 2 * heatbeat interval
+	go func(wg *sync.WaitGroup) {
+		defer wg.Done()
+		for {
+			time.Sleep(HEARTBEAT_INTV * 2)
+			if cs.lastHeatBeat.Add(2 * HEARTBEAT_INTV).Before(time.Now()) {
+				// last heatbeat is 2 times interval before -> try connect
+				fmt.Println("INFO: No heatbeat from master. Trying reconnection.")
+				err := cs.register(master)
+				for err != nil {
+					fmt.Println("ERROR: " + err.Error())
+					time.Sleep(HEARTBEAT_INTV)
+					fmt.Println("INFO: Retrying")
+					err = cs.register(master)
+				}
+				fmt.Println("INFO: Reconnection success")
+			}
+		}
+	}(wg)
+	wg.Wait()
+	return nil
 }

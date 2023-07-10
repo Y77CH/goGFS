@@ -6,7 +6,7 @@ import (
 )
 
 func testRead() {
-	readContent, err := Read("/home/ychen/test3.txt", 0, 4)
+	readContent, err := Read("/home/ychen/test2.txt", 0, 4)
 	if err == nil {
 		fmt.Println(string(readContent))
 	} else {
@@ -85,6 +85,11 @@ func testCreate() {
 	if err != nil {
 		fmt.Println(err)
 	}
+	filename = "/home/ychen/test3.txt"
+	Create(filename)
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 func testDelete() {
@@ -96,9 +101,9 @@ func testDelete() {
 }
 
 func main() {
-	// testCreate()
-	// testEasyAppend()
-	// testEasyWrite()
-	// testRead()
-	testDelete()
+	testCreate()     // create 1, 2, 3
+	testEasyAppend() // append to 1
+	testEasyWrite()  // write to 2
+	testRead()       // read 2
+	testDelete()     // delete 3
 }

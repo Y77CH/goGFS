@@ -63,7 +63,7 @@
     "compounds": [
         {
             "name": "Servers",
-            "configurations": ["Chunk Server 6667", "Chunk Server 6668", "Chunk Server 6669", "Chunk Server 6670", "Chunk Server 6671"]
+            "configurations": ["Chunk Server 6667", "Chunk Server 6668", "Chunk Server 6669", "Chunk Server 6670", "Chunk Server 6671", "Master Server"]
         }
     ]
 }

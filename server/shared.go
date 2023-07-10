@@ -27,6 +27,7 @@ type ChunkServer struct {
 	addr           string
 	cache          *bufferCache
 	extensionBatch []handle
+	lastHeatBeat   time.Time
 }
 
 type handle uint64

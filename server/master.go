@@ -1,15 +1,16 @@
 package main
 
 import (
-	"encoding/json"
+	"bufio"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"net"
 	"net/rpc"
 	"os"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -71,10 +72,6 @@ func (ms *MasterServer) Register(args RegisterArgs, reply *RegisterReturn) error
 			// TODO what if not exist?
 		}
 	}
-	err := ms.writeMeta()
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -134,7 +131,7 @@ func (ms *MasterServer) Create(args CreateArgs, ret *CreateReturn) error {
 		serverCountSlice = append(serverCountSlice, serverCount{a, v})
 	}
 	sort.Slice(serverCountSlice, func(i, j int) bool {
-		return serverCountSlice[i].count > serverCountSlice[j].count
+		return serverCountSlice[i].count < serverCountSlice[j].count
 	})
 
 	// Create new chunks
@@ -159,7 +156,20 @@ func (ms *MasterServer) Create(args CreateArgs, ret *CreateReturn) error {
 
 		// add server to the chunk metadata
 		ms.chunkMapping[string(args)][0].servers = append(ms.chunkMapping[string(args)][0].servers, p.serverAddr)
+
+		// remove server from the special idle entry if exist
+		for i, s := range ms.chunkMapping[""][0].servers {
+			if s == p.serverAddr {
+				l := len(ms.chunkMapping[""][0].servers)
+				ms.chunkMapping[""][0].servers[i] = ms.chunkMapping[""][0].servers[l-1]
+				ms.chunkMapping[""][0].servers = ms.chunkMapping[""][0].servers[:l-1]
+				break
+			}
+		}
 	}
+
+	ms.logOperation("NMSP_ADD", string(args), 0)
+	ms.logOperation("FILE_ADD", string(args), newHandle)
 
 	return nil
 }
@@ -182,34 +192,28 @@ func (ms *MasterServer) Delete(args DelArgs, ret *DelReturn) error {
 
 	// delete relevant entries
 	delete(ms.chunkMapping, string(args))
+
+	ms.logOperation("NMSP_DEL", string(args), 0)
 	return nil
 }
 
-func (ms *MasterServer) writeMeta() error {
-	// load metadata into new data structure
-	pmap := persistMap{}
-	for n, m := range ms.chunkMapping {
-		if n == "" {
-			continue
-		}
-		pmap[n] = []persistMeta{}
-		for _, pm := range m {
-			pmap[n] = append(pmap[n], persistMeta{pm.handle, pm.version})
-		}
-	}
-	// convert to json
-	jsonMeta, err := json.Marshal(pmap)
+// Called by master to log operation.
+// Available operation types: NMSP_ADD, NMSP_DEL, FILE_ADD
+// h is an optional parameter that is only used in FILE_ADD. Otherwise, it will be dropped
+func (ms *MasterServer) logOperation(opType string, path string, h handle) error {
+	// log operation to disk
+	f, err := os.OpenFile(ms.metaDir+"log", os.O_APPEND|os.O_WRONLY, os.ModeAppend)
 	if err != nil {
 		return err
 	}
-	// write
-	f, err := os.Create(ms.metaDir + "mappings.json")
 	defer f.Close()
-	if err != nil {
-		return err
+	toWrite := opType + " " + path
+	if opType == "FILE_ADD" {
+		toWrite += " "
+		toWrite += fmt.Sprint(h)
 	}
-	_, err = f.Write(jsonMeta)
-	if err != nil {
+	toWrite += "\n"
+	if _, err = f.WriteString(toWrite); err != nil {
 		return err
 	}
 	return nil
@@ -242,10 +246,6 @@ func (ms *MasterServer) heartBeat() error {
 	}
 
 	// Write data to metadata file after each successful heatbeat
-	err := ms.writeMeta()
-	if err != nil {
-		return err
-	}
 	fmt.Println("INFO: HeatBeat")
 	return nil
 }
@@ -261,33 +261,46 @@ func startMaster(addr string, metaDir string) error {
 	master.chunkMapping[""] = []chunkMeta{}
 	master.chunkMapping[""] = append(master.chunkMapping[""], chunkMeta{})
 
-	// Read persistent meta data
-	_, err := os.Stat(metaDir + "mappings.json")
+	// Replay operation log (create if first start)
+	_, err := os.Stat(metaDir + "log")
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			// create mapping file if not exist
-			fmt.Println("INFO: Mapping file not exist, creating.")
-			_, err = os.Create(metaDir + "mappings.json")
+			// log does not exist
+			fmt.Println("INFO: Operation log does not exist, creating.")
+			_, err = os.Create(metaDir + "log")
 			if err != nil {
-				fmt.Println("ERROR: Create file failed")
+				fmt.Println("ERROR: Create operation log failed")
 				return err
 			}
 		} else {
 			return err
 		}
 	} else {
-		// load mapping if exist
-		jsonVal, err := ioutil.ReadFile(metaDir + "mappings.json") // it's reasonable to read all at once due to the small size of metadata
+		f, err := os.Open(master.metaDir + "log")
+		defer f.Close()
 		if err != nil {
-			fmt.Println("ERROR: Read mapping failed")
 			return err
 		}
-		var meta persistMap
-		json.Unmarshal(jsonVal, &meta)
-		for n, m := range meta {
-			master.chunkMapping[n] = []chunkMeta{}
-			for _, pm := range m {
-				master.chunkMapping[n] = append(master.chunkMapping[n], chunkMeta{pm.Handle, []string{}, pm.Version, "", time.Time{}})
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := scanner.Text()
+			components := strings.Fields(line)
+			if components[0] == "NMSP_ADD" {
+				master.chunkMapping[components[1]] = []chunkMeta{}
+				continue
+			} else if components[0] == "NMSP_DEL" {
+				delete(master.chunkMapping, components[1])
+				continue
+			} else if components[0] == "FILE_ADD" {
+				h, err := strconv.ParseInt(components[2], 10, 64)
+				if err != nil {
+					fmt.Println("ERROR: Convert logged handle to int64 failed")
+					return err
+				}
+				master.chunkMapping[components[1]] = append(master.chunkMapping[components[1]], chunkMeta{handle: handle(h)})
+				continue
+			} else {
+				fmt.Println("ERROR: Invalid log line")
 			}
 		}
 	}

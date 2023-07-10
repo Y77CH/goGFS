@@ -47,9 +47,26 @@ General roadmap (may change):
 * In 0.1.X and 0.2.X, I have implemented the chunkserver.
 * In 0.3.X, I have developed the master, but only its core function: maintain metadata. This is an important design of GFS, because it separates data flow and control flow.
 * After that, in 0.4.X, I have developed the lease mechanism. This is a core feature, because it (to some extent) solves the concurrent write issue which may lead to data inconsistency (different write order).
-* Next, in 0.5.X, I'm adding the `create` and `delete` calls which will require the namespace manager and relevant locking mechanism.
-* In the 1.0 version, I will be completing the recovery feature. At this version, even though the system is still not the final product described in the paper, it has all important features.
+* Next, in 0.5.X, I have added the `create` and `delete` calls **without** namespace management yet.
+* In the 1.0 version, I'm completing the recovery feature: the master should be able to recover by replaying operation log. At this version, even though the system is still not the final product described in the paper, it has all important features.
+* Important further features: namespace locking, checkpoint (b-tree)
 * More features: garbage collection, re-replication, rebalancing, stale detection, master replication, checksumming.
+
+### goGFS v0.6
+
+Chunkserver recovery has been partially completed in 0.3.X where chunkservers are able to register at startup / restart, and the master will use heartbeat to ensure liveness of each chunkserver. However, in this version, I will enhance this feature such that when the chunkserver starts / restarts and do not receive heartbeat within twice the heartbeat interval, it will try reconnection.
+
+In addition, I will try to implement the recovery of master by writing and replaying operation log.
+
+(Overriding Change) In the previous versions, I attempted to save metadata of master in each operation by parsing and writing part of the in-memory data structure directly to file. That is not feasible if the cluster is big enough. Therefore, I will be overriding that `writeMeta` and the part in `startMaster` that reads metadata to logging steps of change in the namespace and the chunk mapping.
+
+Right now, the system will have the following logging:
+
+```
+NMSP_ADD <path>: add <path> to namespace
+NMSP_DEL <path>: delete file <path> (with its chunks) from the namespace
+FILE_ADD <path> <handle>: add chunk with handle <handle> to file <path>
+```
 
 ### goGFS v0.5
 
