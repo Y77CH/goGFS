@@ -10,6 +10,8 @@ import (
 // DEFINITIONS =================================================
 
 const MASTER_ADDR = "127.0.0.1:6666"
+const CHUNK_SIZE_MB = 64
+const CHUNK_SIZE = CHUNK_SIZE_MB * 1024 * 1024
 
 type handle uint64
 
@@ -29,7 +31,7 @@ type RegisterReturn int //placeholder
 
 type GetChunkArgs struct {
 	FileName   string
-	ChunkIndex int64
+	ChunkIndex int
 }
 
 type GetChunkReturn struct {
@@ -81,16 +83,46 @@ type DelArgs string // absolute path
 
 type DelReturn int // placeholder
 
-var locations map[string]map[int64]GetChunkReturn // filename : {index : {handle, servers, expire}}
+var locations map[string]map[int]GetChunkReturn // filename : {index : {handle, servers, expire}}
 
 // PUBLIC API ==================================================
 
-// GFS client code that reads file starting at readStart byte for readLength bytes
 func Read(fileName string, readStart int64, readLength int) (ReadReturn, error) {
-	// Use the assumed chunk size to calculate chunk index and chunk offset
-	index := readStart / (64 * 1024 * 1024)
-	var chunkOffset int64 = readStart % (64 * 1024 * 1024)
-	fmt.Printf("INFO: Read started: File %s, starting at byte %d; Will read chunk %d, starting at byte %d\n", fileName, readStart, index, chunkOffset)
+	startIndex := int(readStart / CHUNK_SIZE)
+	endIndex := int((readStart + int64(readLength)) / CHUNK_SIZE)
+	i := startIndex
+	ret := []byte{}
+	for i < endIndex+1 {
+		var start int64
+		var end int64
+		if i == startIndex {
+			start = readStart % CHUNK_SIZE
+			if startIndex == endIndex {
+				end = (readStart + int64(readLength)) % CHUNK_SIZE
+			} else {
+				end = CHUNK_SIZE
+			}
+		} else if i == endIndex {
+			start = 0
+			end = (readStart + int64(readLength)) % CHUNK_SIZE
+		} else {
+			start = 0
+			end = CHUNK_SIZE
+		}
+		fmt.Printf("INFO: Will be reading on chunk %d, from byte %d to byte %d\n", i, start, end)
+		chunkret, err := ChunkRead(fileName, i, start, end)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, []byte(chunkret)...)
+		i++
+	}
+	return ret, nil
+}
+
+// GFS client code that reads file starting at readStart byte for readLength bytes
+// Note: Read starts at byte 0
+func ChunkRead(fileName string, index int, startByte int64, endByte int64) (ReadReturn, error) {
 	// Get chunk handle and list of replicas from master if necessary
 	getChunkReturn, exist := locations[fileName][index]
 	if !exist || getChunkReturn.Expire.Before(time.Now()) {
@@ -108,11 +140,12 @@ func Read(fileName string, readStart int64, readLength int) (ReadReturn, error) 
 		if err != nil {
 			return nil, err
 		}
+		// initialize locations if necessary
 		if locations == nil {
-			locations = map[string]map[int64]GetChunkReturn{}
+			locations = map[string]map[int]GetChunkReturn{}
 		}
 		if locations[getChunkArgs.FileName] == nil {
-			locations[getChunkArgs.FileName] = map[int64]GetChunkReturn{}
+			locations[getChunkArgs.FileName] = map[int]GetChunkReturn{}
 		}
 		locations[getChunkArgs.FileName][getChunkArgs.ChunkIndex] = getChunkReturn // add to known locations
 		fmt.Printf("INFO: Primary %s will expire at %d:%d:%d\n", getChunkReturn.Chunkservers[0], getChunkReturn.Expire.Hour(), getChunkReturn.Expire.Minute(), getChunkReturn.Expire.Second())
@@ -125,8 +158,8 @@ func Read(fileName string, readStart int64, readLength int) (ReadReturn, error) 
 	}
 	readArgs := ReadArgs{
 		Handle: getChunkReturn.Handle,
-		Offset: chunkOffset,
-		Length: readLength,
+		Offset: startByte,
+		Length: int(endByte - startByte),
 		expire: getChunkReturn.Expire,
 	}
 	readReturn := []byte{}
@@ -158,10 +191,10 @@ func RecordAppend(fileName string, data []byte) (int, error) {
 			return -1, err
 		}
 		if locations == nil {
-			locations = map[string]map[int64]GetChunkReturn{}
+			locations = map[string]map[int]GetChunkReturn{}
 		}
 		if locations[getChunkArgs.FileName] == nil {
-			locations[getChunkArgs.FileName] = map[int64]GetChunkReturn{}
+			locations[getChunkArgs.FileName] = map[int]GetChunkReturn{}
 		}
 		locations[getChunkArgs.FileName][getChunkArgs.ChunkIndex] = getChunkReturn // add to known locations
 		fmt.Printf("INFO: Primary %s will expire at %d:%d:%d\n", getChunkReturn.Chunkservers[0], getChunkReturn.Expire.Hour(), getChunkReturn.Expire.Minute(), getChunkReturn.Expire.Second())
@@ -193,11 +226,41 @@ func RecordAppend(fileName string, data []byte) (int, error) {
 	return int(applyAppendReturn) + int(getChunkReturn.Handle)*64*1024*1024, nil
 }
 
-// GFS client code that writes to a certain place of file. NOTE: file starts with byte 0
-func Write(fileName string, offset int64, data []byte) error {
-	index := offset / (64 * 1024 * 1024)
-	var chunkOffset int64 = offset % (64 * 1024 * 1024)
+// Write data to fileName starting at writeStart
+// NOTE: file starts with byte 0
+func Write(fileName string, writeStart int64, data []byte) error {
+	startIndex := int(writeStart / CHUNK_SIZE)
+	endIndex := (int(writeStart) + len(data)) / CHUNK_SIZE
+	i := startIndex
 
+	for i < endIndex+1 {
+		var start int64
+		var end int64
+		if i == startIndex {
+			start = writeStart % CHUNK_SIZE
+			end = CHUNK_SIZE
+		} else if i == endIndex {
+			start = 0
+			end = (writeStart + int64(len(data))) % CHUNK_SIZE
+		} else {
+			start = 0
+			end = CHUNK_SIZE
+		}
+		fmt.Printf("INFO: Will be writing on chunk %d, from byte %d to byte %d\n", i, start, end)
+		length := end - start
+		toWrite := data[:length]
+		data = data[length:]
+		err := ChunkWrite(fileName, i, start, end, toWrite)
+		if err != nil {
+			return err
+		}
+		i++
+	}
+	return nil
+}
+
+// Write data to chunk index from startByte to endByte
+func ChunkWrite(fileName string, index int, startByte int64, endByte int64, data []byte) error {
 	// Get chunk handle and list of replicas from master if necessary
 	getChunkReturn, exist := locations[fileName][index]
 	if !exist || getChunkReturn.Expire.Before(time.Now()) {
@@ -215,10 +278,10 @@ func Write(fileName string, offset int64, data []byte) error {
 			return err
 		}
 		if locations == nil {
-			locations = map[string]map[int64]GetChunkReturn{}
+			locations = map[string]map[int]GetChunkReturn{}
 		}
 		if locations[getChunkArgs.FileName] == nil {
-			locations[getChunkArgs.FileName] = map[int64]GetChunkReturn{}
+			locations[getChunkArgs.FileName] = map[int]GetChunkReturn{}
 		}
 		locations[getChunkArgs.FileName][getChunkArgs.ChunkIndex] = getChunkReturn // add to known locations
 		fmt.Printf("INFO: Primary %s will expire at %d:%d:%d\n", getChunkReturn.Chunkservers[0], getChunkReturn.Expire.Hour(), getChunkReturn.Expire.Minute(), getChunkReturn.Expire.Second())
@@ -237,7 +300,7 @@ func Write(fileName string, offset int64, data []byte) error {
 	// write data
 	applyWriteArg.Replicas = getChunkReturn.Chunkservers
 	applyWriteArg.ChunkIndex = int(index)
-	applyWriteArg.ChunkOffset = int64(chunkOffset)
+	applyWriteArg.ChunkOffset = int64(startByte)
 	applyWriteArg.expire = getChunkReturn.Expire
 	var applyWriteReturn PrimaryApplyWriteReturn
 	primary, err := rpc.Dial("tcp", getChunkReturn.Chunkservers[0])

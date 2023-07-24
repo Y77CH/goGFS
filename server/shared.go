@@ -19,7 +19,8 @@ type chunkMeta struct {
 type MasterServer struct {
 	addr         string
 	chunkMapping map[string][]chunkMeta // filename : list of ChunkHandle
-	metaDir      string                 // path where master saves operation log and persistent metadata
+	mappingLock  sync.RWMutex
+	metaDir      string // path where master saves operation log and persistent metadata
 }
 
 type ChunkServer struct {
@@ -61,7 +62,7 @@ type RegisterReturn int //placeholder
 
 type GetChunkArgs struct {
 	FileName   string
-	ChunkIndex int64
+	ChunkIndex int
 }
 
 type GetChunkReturn struct {

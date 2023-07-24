@@ -12,13 +12,13 @@ There are still some functions that need to be fixed or refinements that can be 
 
 ### VSCode Integration
 
-An easy way to run the system is by using VSCode's run & debugging function. By opening this folder as a workspace, the `launch.json` I defined will be automatically loaded, and you will see the services I have defined. You can easily run them by clicking each service (before this, you may need to change relevant arguments like data directory, `dir`), and conveniently add breakpoints to debug.
+An easy way to run the system locally (single machine) is to use VSCode's run & debugging function. By opening this folder as a workspace, the `launch.json` I defined will be automatically loaded, and you will see the services I have defined. You can easily run them by selecting the desired service and conveniently add breakpoints if debug is necessary. Note that you may need to change relevant arguments like data directory, `dir`.
 
 ### Manual
 
-You can also run the system through command line.
+You can also run the system through command line which is what you should be doing when running the system in a distributed environment.
 
-First start a master server, using the following:
+Start the master server using the following:
 
 ```shell
 go run server/start.go server/chunkserver.go server/master.go server/shared.go -type ms -addr <address> -dir <data directory>
@@ -30,7 +30,7 @@ To start a new chunkserver, use the following command:
 go run server/start.go server/chunkserver.go server/master.go server/shared.go -type cs -addr <address> -dir <data directory> -master <master address>
 ```
 
-To use the system, call APIs in the `client.go` file in app code (an example app is `app.go`), and run the following:
+To use the system, call APIs (defined in the `client.go` file) in your app code (an example app is `app.go`), and run the following:
 
 ```shell
 go run app.go client.go
@@ -42,17 +42,29 @@ Overall design choices will be documented here; specific technical implementatio
 
 Each version will be self-contained (i.e. runnable).
 
-General roadmap (may change): 
+General roadmap (may change):
 
 * In 0.1.X and 0.2.X, I have implemented the chunkserver.
 * In 0.3.X, I have developed the master, but only its core function: maintain metadata. This is an important design of GFS, because it separates data flow and control flow.
 * After that, in 0.4.X, I have developed the lease mechanism. This is a core feature, because it (to some extent) solves the concurrent write issue which may lead to data inconsistency (different write order).
 * Next, in 0.5.X, I have added the `create` and `delete` calls **without** namespace management yet.
-* In the 1.0 version, I'm completing the recovery feature: the master should be able to recover by replaying operation log. At this version, even though the system is still not the final product described in the paper, it has all important features.
-* Important further features: namespace locking, checkpoint (b-tree)
-* More features: garbage collection, re-replication, rebalancing, stale detection, master replication, checksumming.
+* In the 1.0 version, I'm completing the recovery feature: the master should be able to recover by replaying operation log.
+* In the 1.1.X version, I will be benchmarking the current implementation and fixing functionality bugs along the way.
 
-### goGFS v0.6
+### goGFS v1.1
+
+In this version, I will deploy the system to [CloudLab](https://www.cloudlab.us) which simulates a bare metal real world cluster, and collect basic data of the current implementation. A detailed list of analysis is documented below:
+
+* Whether the entire system works (functionality, recovery).
+* Collect speed of read and write, and also network limit.
+* Whether the system works under large load (large data size, large amount of clients).
+
+Meanwhile, I have done following refinements:
+
+* Split reads: when the read crosses chunk boundary, the client automatically separates the request into two
+* Split write: when the write crosses boundary, the client will first write to the end; and then create new chunk(s) for writing
+
+### goGFS v1.0
 
 Chunkserver recovery has been partially completed in 0.3.X where chunkservers are able to register at startup / restart, and the master will use heartbeat to ensure liveness of each chunkserver. However, in this version, I will enhance this feature such that when the chunkserver starts / restarts and do not receive heartbeat within twice the heartbeat interval, it will try reconnection.
 
@@ -96,7 +108,7 @@ A primary principle I followed when designing chunkserver is keeping in-memory d
 
 ### goGFS v0.3.1
 
-Enhance the master: a core feature of master is to maintain metadata. 
+Enhance the master: a core feature of master is to maintain metadata.
 
 In this version, I will enable the master to regularly make heartbeat rpc call to poll chunk info from known chunkservers.
 
@@ -121,7 +133,7 @@ Due to the fact that I'm creating a master (instead of a dummy one), I will move
 
 At the same time, because the both master and chunkserver need to be started as single processes, I will need to create a separate start go file as program entrance point.
 
-Because this is a minimal implementation, I won't be adding version number support for now. 
+Because this is a minimal implementation, I won't be adding version number support for now.
 
 #### Design Considerations
 
@@ -133,23 +145,23 @@ Implement the record append and write function of chunkserver and relevant part 
 
 #### Workflow of a Write (without Master)
 
-1. Client asks master for primary and secondary replicas. 
+1. Client asks master for primary and secondary replicas.
 2. Master replies with the primary and secondary replicas.
    The client caches data for future mutations.
-3. The client pushes the data to all the replicas. 
+3. The client pushes the data to all the replicas.
    Each chunkserver stores data in an internal LRU buffer cache until data used or aged out.
-4. Once all the replicas acknowledged receiving data, 
+4. Once all the replicas acknowledged receiving data,
    the client sends a write request to primary where data pushed earlier are identified.
-   The primary assigns consecutive serial numbers to all mutations 
+   The primary assigns consecutive serial numbers to all mutations
    and applies mutation to local in the serialized order.
-5. The primary forwards the write to all secondary, 
+5. The primary forwards the write to all secondary,
    and each secondary applies mutation with the serialized order.
 6. All secondaries reply to primary regarding if they have completed the operation.
 7. The primary replies to the client. If there is any error, the write fails and the client has to retry.
 
 #### Notes
 
-Because I wish to implement client and chunkserver first (which is why current version is `0.x`), 
+Because I wish to implement client and chunkserver first (which is why current version is `0.x`),
 the dummy master will always pick the chunkserver at `127.0.0.1:12345` as the primary.
 
 ### goGFS v0.1.2
@@ -158,14 +170,14 @@ Update the server such that it will handle concurrent read, instead of blocking 
 
 ### goGFS v0.1.1
 
-Change the project structure such that servers will be launched separatedly as new processes 
+Change the project structure such that servers will be launched separatedly as new processes
 which better simulates multi-machine distributed system.
 
 #### Notes
 
-This comes at the cost of completely separating the client and server side which leads to the issue that, 
+This comes at the cost of completely separating the client and server side which leads to the issue that,
 for example, RPC call and reply data structures have to be redefined.
-However, I do believe that this is acceptable. 
+However, I do believe that this is acceptable.
 
 ### goGFS v0.1
 
@@ -173,18 +185,18 @@ Implement the read function in chunkserver and relevant part of the client with 
 
 #### Workflow of a Read
 
-1. Client calls dummy master with file name, chunk index (file size divided by chunk size) 
+1. Client calls dummy master with file name, chunk index (file size divided by chunk size)
    and dummy master replies with the chunk handle and dummy list of replicas.
 2. Client sends chunk handle and byte range (i.e. starting offset + length of read) to chunkserver.
 3. Chunkserver replies with the corresponding chunk data.
 
 #### Design Considerations
 
-I understand that for a real distributed system, the gfs servers should be started as services 
-(i.e. in another process, and preferrably from other machines). 
+I understand that for a real distributed system, the gfs servers should be started as services
+(i.e. in another process, and preferrably from other machines).
 However, for this initial version, I will be starting them only as go routines for simplicity.
 
-Instead of using a custom bit map, or workarounds like `big.Int`, I decided to use `int64` for chunk handle, 
+Instead of using a custom bit map, or workarounds like `big.Int`, I decided to use `int64` for chunk handle,
 as there is no real scenario where I need to, for example, set an individual bit or do bit arithmetic.
 
 #### Notes
@@ -196,9 +208,11 @@ as there is no real scenario where I need to, for example, set an individual bit
 
 There are some features / edge cases that are important but may not be implemented before large portion of the work is done.
 
+- [ ] Separate the read / write if it is crossing chunk boundary
 - [ ] Implement "read from closest" and pipelining during data push (paper 3.2)
 - [ ] Decide and implement retry
-- [ ] Separate the read / write if it is crossing chunk boundary
 - [ ] Implement primary serializing mutations via batching
 - [ ] Structure error handling and logging
 - [ ] Figure out a way to test lease extension
+- [ ] Further features: namespace locking, checkpoint (b-tree)
+- [ ] Further functionalities: garbage collection, re-replication, rebalancing, stale detection, master replication, checksumming

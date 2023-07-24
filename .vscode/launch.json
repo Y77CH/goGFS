@@ -10,7 +10,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/server/",
-            "args": ["-addr", "127.0.0.1:6666", "-type", "ms", "-dir", "/home/ychen/goGFS/data/master/"]
+            "args": ["-addr", "127.0.0.1:6666", "-type", "ms", "-dir", "${workspaceFolder}/data/master/"]
         },
         {
             "name": "User App",
@@ -25,7 +25,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/server/",
-            "args": ["-addr", "127.0.0.1:6667", "-type", "cs", "-dir", "/home/ychen/goGFS/data/server1/", "-master", "127.0.0.1:6666"]
+            "args": ["-addr", "127.0.0.1:6667", "-type", "cs", "-dir", "${workspaceFolder}/data/server1/", "-master", "127.0.0.1:6666"]
         },
         {
             "name": "Chunk Server 6668",
@@ -33,7 +33,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/server/",
-            "args": ["-addr", "127.0.0.1:6668", "-type", "cs", "-dir", "/home/ychen/goGFS/data/server2/", "-master", "127.0.0.1:6666"]
+            "args": ["-addr", "127.0.0.1:6668", "-type", "cs", "-dir", "${workspaceFolder}/data/server2/", "-master", "127.0.0.1:6666"]
         },
         {
             "name": "Chunk Server 6669",
@@ -41,7 +41,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/server/",
-            "args": ["-addr", "127.0.0.1:6669", "-type", "cs", "-dir", "/home/ychen/goGFS/data/server3/", "-master", "127.0.0.1:6666"]
+            "args": ["-addr", "127.0.0.1:6669", "-type", "cs", "-dir", "${workspaceFolder}/data/server3/", "-master", "127.0.0.1:6666"]
         },
         {
             "name": "Chunk Server 6670",
@@ -49,7 +49,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/server/",
-            "args": ["-addr", "127.0.0.1:6670", "-type", "cs", "-dir", "/home/ychen/goGFS/data/server4/", "-master", "127.0.0.1:6666"]
+            "args": ["-addr", "127.0.0.1:6670", "-type", "cs", "-dir", "${workspaceFolder}/data/server4/", "-master", "127.0.0.1:6666"]
         },
         {
             "name": "Chunk Server 6671",
@@ -57,7 +57,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/server/",
-            "args": ["-addr", "127.0.0.1:6671", "-type", "cs", "-dir", "/home/ychen/goGFS/data/server5/", "-master", "127.0.0.1:6666"]
+            "args": ["-addr", "127.0.0.1:6671", "-type", "cs", "-dir", "${workspaceFolder}/data/server5/", "-master", "127.0.0.1:6666"]
         }
     ],
     "compounds": [

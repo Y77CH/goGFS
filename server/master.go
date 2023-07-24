@@ -35,6 +35,10 @@ func (ms *MasterServer) GetChunkHandleAndLocations(args GetChunkArgs, chunkRetur
 		metas := ms.chunkMapping[args.FileName]
 		meta = metas[len(metas)-1]
 	} else {
+		if args.ChunkIndex == len(ms.chunkMapping[args.FileName]) {
+			// when chunk index requested is larger, create new chunk
+			ms.createChunk(args.FileName)
+		}
 		meta = ms.chunkMapping[args.FileName][args.ChunkIndex]
 	}
 	chunkReturn.Handle = meta.handle
@@ -96,6 +100,15 @@ func (ms *MasterServer) Create(args CreateArgs, ret *CreateReturn) error {
 		handle: newHandle,
 	}}
 
+	ms.placeChunk(string(args), newHandle)
+
+	ms.logOperation("NMSP_ADD", string(args), 0)
+	ms.logOperation("FILE_ADD", string(args), newHandle)
+
+	return nil
+}
+
+func (ms *MasterServer) placeChunk(fileName string, newHandle handle) error {
 	// Collect the server counts
 	serverCounts := make(map[string]int)
 	for fname, chunkList := range ms.chunkMapping {
@@ -112,7 +125,7 @@ func (ms *MasterServer) Create(args CreateArgs, ret *CreateReturn) error {
 		for _, meta := range chunkList {
 			for _, server := range meta.servers {
 				// create and set to 0 if exist; otherwise, increment by 1
-				if _, ok := ms.chunkMapping[string(args)]; ok {
+				if _, ok := ms.chunkMapping[fileName]; ok {
 					serverCounts[server]++
 				} else {
 					serverCounts[server] = 0
@@ -155,7 +168,11 @@ func (ms *MasterServer) Create(args CreateArgs, ret *CreateReturn) error {
 		}
 
 		// add server to the chunk metadata
-		ms.chunkMapping[string(args)][0].servers = append(ms.chunkMapping[string(args)][0].servers, p.serverAddr)
+		for i := range ms.chunkMapping[fileName] {
+			if ms.chunkMapping[fileName][i].handle == newHandle {
+				ms.chunkMapping[fileName][i].servers = append(ms.chunkMapping[fileName][i].servers, p.serverAddr)
+			}
+		}
 
 		// remove server from the special idle entry if exist
 		for i, s := range ms.chunkMapping[""][0].servers {
@@ -167,10 +184,6 @@ func (ms *MasterServer) Create(args CreateArgs, ret *CreateReturn) error {
 			}
 		}
 	}
-
-	ms.logOperation("NMSP_ADD", string(args), 0)
-	ms.logOperation("FILE_ADD", string(args), newHandle)
-
 	return nil
 }
 
@@ -194,6 +207,21 @@ func (ms *MasterServer) Delete(args DelArgs, ret *DelReturn) error {
 	delete(ms.chunkMapping, string(args))
 
 	ms.logOperation("NMSP_DEL", string(args), 0)
+	return nil
+}
+
+func (ms *MasterServer) createChunk(fileName string) error {
+	i := len(ms.chunkMapping[fileName])
+	ms.mappingLock.Lock()
+	ms.chunkMapping[fileName] = append(ms.chunkMapping[fileName], chunkMeta{})
+	newHandle := ms.generateHandle()
+	ms.chunkMapping[fileName][i].handle = newHandle
+	err := ms.placeChunk(fileName, newHandle)
+	if err != nil {
+		return err
+	}
+	ms.mappingLock.Unlock()
+	ms.logOperation("FILE_ADD", fileName, newHandle)
 	return nil
 }
 
@@ -256,6 +284,7 @@ func startMaster(addr string, metaDir string) error {
 	master.chunkMapping = map[string][]chunkMeta{}
 	master.addr = addr
 	master.metaDir = metaDir
+	master.mappingLock = sync.RWMutex{}
 
 	// initialize idle entry
 	master.chunkMapping[""] = []chunkMeta{}
