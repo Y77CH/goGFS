@@ -210,9 +210,7 @@ There are some features / edge cases that are important but may not be implement
 
 - [ ] Separate the read / write if it is crossing chunk boundary
 - [ ] Implement "read from closest" and pipelining during data push (paper 3.2)
-- [ ] Decide and implement retry
 - [ ] Implement primary serializing mutations via batching
-- [ ] Structure error handling and logging
 - [ ] Figure out a way to test lease extension
 - [ ] Further features: namespace locking, checkpoint (b-tree)
 - [ ] Further functionalities: garbage collection, re-replication, rebalancing, stale detection, master replication, checksumming

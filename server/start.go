@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
+
+	"go.uber.org/zap"
 )
 
 // CMD
@@ -13,12 +15,17 @@ func main() {
 	master := flag.String("master", "", "Specify the master address if starting a chunkserver")
 	flag.Parse()
 
+	logger, _ := zap.NewProduction()
+	defer logger.Sync()
+	undo := zap.ReplaceGlobals(logger)
+	defer undo()
+
 	if *stype == "cs" {
 		if *addr != "" {
 			if *dir != "" {
 				if *master != "" {
 					// valid arguments
-					fmt.Println("Starting chunkserver")
+					zap.L().Info("Starting chunkserver")
 					err := startChunkServer(*addr, *dir, *master)
 					fmt.Println(err.Error())
 				}
@@ -28,7 +35,7 @@ func main() {
 		if *addr != "" {
 			if *dir != "" {
 				// valid arguments
-				fmt.Println("Starting master server")
+				zap.L().Info("Starting master server")
 				err := startMaster(*addr, *dir)
 				if err != nil {
 					fmt.Println(err.Error())

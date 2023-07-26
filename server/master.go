@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 const HEARTBEAT_INTV = time.Second * 1
@@ -28,6 +30,7 @@ type persistMap map[string][]persistMeta
 
 // GetChunkHandleAndLocations returns chunk handle and locations of it
 func (ms *MasterServer) GetChunkHandleAndLocations(args GetChunkArgs, chunkReturn *GetChunkReturn) error {
+	zap.L().Debug("GetChunkHandleAndLocations started")
 	// pick the correct chunk
 	var meta chunkMeta
 	// when chunkindex is -1, the last chunk index is used
@@ -48,11 +51,13 @@ func (ms *MasterServer) GetChunkHandleAndLocations(args GetChunkArgs, chunkRetur
 		meta.lease = time.Now().Add(LEASE_DURATION)
 	}
 	chunkReturn.Expire = meta.lease
+	zap.L().Debug("GetChunkHandleAndLocations finished")
 	return nil
 }
 
 // Chunkservers call this via RPC to register liveness and chunks
 func (ms *MasterServer) Register(args RegisterArgs, reply *RegisterReturn) error {
+	zap.L().Debug("Register started")
 	if len(args.Handles) == 0 {
 		// idle chunkserver -> store in special entry (empty string, empty handle)
 		ms.chunkMapping[""][0].servers = append(ms.chunkMapping[""][0].servers, args.ChunkserverAddr)
@@ -76,6 +81,7 @@ func (ms *MasterServer) Register(args RegisterArgs, reply *RegisterReturn) error
 			// TODO what if not exist?
 		}
 	}
+	zap.L().Debug("Register finished")
 	return nil
 }
 
@@ -87,6 +93,7 @@ func (ms *MasterServer) generateHandle() handle {
 
 // Create creates a new file with specified path, adds this path into the chunk mapping
 func (ms *MasterServer) Create(args CreateArgs, ret *CreateReturn) error {
+	zap.L().Debug("Create started")
 	// Check if the file already exists
 	if _, ok := ms.chunkMapping[string(args)]; ok {
 		return errors.New("file already exists")
@@ -105,10 +112,12 @@ func (ms *MasterServer) Create(args CreateArgs, ret *CreateReturn) error {
 	ms.logOperation("NMSP_ADD", string(args), 0)
 	ms.logOperation("FILE_ADD", string(args), newHandle)
 
+	zap.L().Debug("Create finished")
 	return nil
 }
 
 func (ms *MasterServer) placeChunk(fileName string, newHandle handle) error {
+	zap.L().Debug("placeChunk started")
 	// Collect the server counts
 	serverCounts := make(map[string]int)
 	for fname, chunkList := range ms.chunkMapping {
@@ -158,12 +167,12 @@ func (ms *MasterServer) placeChunk(fileName string, newHandle handle) error {
 		ret := NewChunkReturn(0)
 		client, err := rpc.Dial("tcp", p.serverAddr)
 		if err != nil {
-			fmt.Println("ERROR: Dial failed")
+			zap.L().Fatal("Dial failed")
 			return err
 		}
 		err = client.Call("ChunkServer.NewChunk", arg, &ret)
 		if err != nil {
-			fmt.Println("ERROR: New Chunk RPC failed")
+			zap.L().Fatal("RPC call failed")
 			return err
 		}
 
@@ -184,20 +193,24 @@ func (ms *MasterServer) placeChunk(fileName string, newHandle handle) error {
 			}
 		}
 	}
+	zap.L().Debug("placeChunk finished")
 	return nil
 }
 
 func (ms *MasterServer) Delete(args DelArgs, ret *DelReturn) error {
+	zap.L().Debug("Delete started")
 	for _, meta := range ms.chunkMapping[string(args)] {
 		arg := DelChunkArgs(meta.handle)
 		ret := DelChunkReturn(0)
 		for _, server := range meta.servers {
 			client, err := rpc.Dial("tcp", server)
 			if err != nil {
+				zap.L().Fatal("RPC dial failed")
 				return err
 			}
 			err = client.Call("ChunkServer.DeleteChunk", arg, &ret)
 			if err != nil {
+				zap.L().Fatal("RPC call failed")
 				return err
 			}
 		}
@@ -207,10 +220,12 @@ func (ms *MasterServer) Delete(args DelArgs, ret *DelReturn) error {
 	delete(ms.chunkMapping, string(args))
 
 	ms.logOperation("NMSP_DEL", string(args), 0)
+	zap.L().Debug("Delete finished")
 	return nil
 }
 
 func (ms *MasterServer) createChunk(fileName string) error {
+	zap.L().Debug("createChunk started")
 	i := len(ms.chunkMapping[fileName])
 	ms.mappingLock.Lock()
 	ms.chunkMapping[fileName] = append(ms.chunkMapping[fileName], chunkMeta{})
@@ -218,10 +233,12 @@ func (ms *MasterServer) createChunk(fileName string) error {
 	ms.chunkMapping[fileName][i].handle = newHandle
 	err := ms.placeChunk(fileName, newHandle)
 	if err != nil {
+		zap.L().Fatal("RPC call failed")
 		return err
 	}
 	ms.mappingLock.Unlock()
 	ms.logOperation("FILE_ADD", fileName, newHandle)
+	zap.L().Debug("createChunk finished")
 	return nil
 }
 
@@ -229,9 +246,11 @@ func (ms *MasterServer) createChunk(fileName string) error {
 // Available operation types: NMSP_ADD, NMSP_DEL, FILE_ADD
 // h is an optional parameter that is only used in FILE_ADD. Otherwise, it will be dropped
 func (ms *MasterServer) logOperation(opType string, path string, h handle) error {
+	zap.L().Debug("logOperation started")
 	// log operation to disk
 	f, err := os.OpenFile(ms.metaDir+"log", os.O_APPEND|os.O_WRONLY, os.ModeAppend)
 	if err != nil {
+		zap.L().Fatal("Open operation log failed")
 		return err
 	}
 	defer f.Close()
@@ -242,8 +261,10 @@ func (ms *MasterServer) logOperation(opType string, path string, h handle) error
 	}
 	toWrite += "\n"
 	if _, err = f.WriteString(toWrite); err != nil {
+		zap.L().Fatal("Write operation log failed")
 		return err
 	}
+	zap.L().Debug("logOperation finished")
 	return nil
 }
 
@@ -257,13 +278,14 @@ func (ms *MasterServer) heartBeat() error {
 				// for each file's each chunk's each server, heatbeat
 				client, err := rpc.Dial("tcp", ms.chunkMapping[f][m].servers[server])
 				if err != nil {
-					fmt.Printf("INFO: Server %s dead.", ms.chunkMapping[f][m].servers[server])
+					zap.L().Sugar().Warnf("Server %s unreachable\n", ms.chunkMapping[f][m].servers[server])
+					continue
 				}
 				arg := HeartBeatArg(m)
 				var ret HeartBeatReturn
 				err = client.Call("ChunkServer.HeartBeat", arg, &ret)
 				if err != nil {
-					fmt.Println("ERROR: HeartBeat RPC call failed")
+					zap.L().Fatal("RPC call failed")
 					return err
 				}
 
@@ -274,7 +296,7 @@ func (ms *MasterServer) heartBeat() error {
 	}
 
 	// Write data to metadata file after each successful heatbeat
-	fmt.Println("INFO: HeatBeat")
+	zap.L().Info("HeatBeat")
 	return nil
 }
 
@@ -295,10 +317,10 @@ func startMaster(addr string, metaDir string) error {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			// log does not exist
-			fmt.Println("INFO: Operation log does not exist, creating.")
+			zap.L().Info("Operation log does not exist. Creating.")
 			_, err = os.Create(metaDir + "log")
 			if err != nil {
-				fmt.Println("ERROR: Create operation log failed")
+				zap.L().Fatal("Create operation log failed")
 				return err
 			}
 		} else {
@@ -306,10 +328,11 @@ func startMaster(addr string, metaDir string) error {
 		}
 	} else {
 		f, err := os.Open(master.metaDir + "log")
-		defer f.Close()
 		if err != nil {
+			zap.L().Fatal("Open operation log failed")
 			return err
 		}
+		defer f.Close()
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -323,13 +346,13 @@ func startMaster(addr string, metaDir string) error {
 			} else if components[0] == "FILE_ADD" {
 				h, err := strconv.ParseInt(components[2], 10, 64)
 				if err != nil {
-					fmt.Println("ERROR: Convert logged handle to int64 failed")
+					zap.L().Fatal("Convert logged handle to int64 failed")
 					return err
 				}
 				master.chunkMapping[components[1]] = append(master.chunkMapping[components[1]], chunkMeta{handle: handle(h)})
 				continue
 			} else {
-				fmt.Println("ERROR: Invalid log line")
+				zap.L().Fatal("Invalid log line")
 			}
 		}
 	}
@@ -338,7 +361,7 @@ func startMaster(addr string, metaDir string) error {
 	rpc.Register(&master)
 	listener, err := net.Listen("tcp", master.addr)
 	if err != nil {
-		fmt.Println("ERROR: Server listener start failed. " + err.Error())
+		zap.L().Fatal("Server listener start failed")
 	}
 
 	wg := new(sync.WaitGroup)
@@ -349,7 +372,7 @@ func startMaster(addr string, metaDir string) error {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				continue
+				zap.L().Fatal("Accept request failed")
 			}
 			go rpc.ServeConn(conn)
 		}
