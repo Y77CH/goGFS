@@ -5,19 +5,48 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "User Large Write",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/",
+            "args": ["-op", "w", "-f", "/client1/test.txt"],
+            "env": {
+                "GOMEMLIMIT": "2000MiB"
+            }
+        },
+        {
+            "name": "User Verify Write",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/",
+            "args": ["-op", "v", "-f", "/client1/test.txt"],
+            "env": {
+                "GOMEMLIMIT": "2000MiB"
+            }
+        },
+        {
+            "name": "User Large Write (Alt)",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/",
+            "args": ["-op", "w", "-f", "/client1/test2.txt"],
+            "env": {
+                "GOMEMLIMIT": "2000MiB"
+            }
+        },
+        {
             "name": "Master Server",
             "type": "go",
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/server/",
-            "args": ["-addr", "127.0.0.1:6666", "-type", "ms", "-dir", "${workspaceFolder}/data/master/"]
-        },
-        {
-            "name": "User App",
-            "type": "go",
-            "request": "launch",
-            "mode": "auto",
-            "program": "${workspaceFolder}/"
+            "args": ["-addr", "127.0.0.1:6666", "-type", "ms", "-dir", "/var/gfs/master/"],
+            "env": {
+                "GOMEMLIMIT": "2000MiB"
+            }
         },
         {
             "name": "Chunk Server 6667",
@@ -25,7 +54,10 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/server/",
-            "args": ["-addr", "127.0.0.1:6667", "-type", "cs", "-dir", "${workspaceFolder}/data/server1/", "-master", "127.0.0.1:6666"]
+            "args": ["-addr", "127.0.0.1:6667", "-type", "cs", "-dir", "/var/gfs/server1/", "-master", "127.0.0.1:6666"],
+            "env": {
+                "GOMEMLIMIT": "2000MiB"
+            }
         },
         {
             "name": "Chunk Server 6668",
@@ -33,7 +65,10 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/server/",
-            "args": ["-addr", "127.0.0.1:6668", "-type", "cs", "-dir", "${workspaceFolder}/data/server2/", "-master", "127.0.0.1:6666"]
+            "args": ["-addr", "127.0.0.1:6668", "-type", "cs", "-dir", "/var/gfs/server2/", "-master", "127.0.0.1:6666"],
+            "env": {
+                "GOMEMLIMIT": "2000MiB"
+            }
         },
         {
             "name": "Chunk Server 6669",
@@ -41,7 +76,10 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/server/",
-            "args": ["-addr", "127.0.0.1:6669", "-type", "cs", "-dir", "${workspaceFolder}/data/server3/", "-master", "127.0.0.1:6666"]
+            "args": ["-addr", "127.0.0.1:6669", "-type", "cs", "-dir", "/var/gfs/server3/", "-master", "127.0.0.1:6666"],
+            "env": {
+                "GOMEMLIMIT": "2000MiB"
+            }
         },
         {
             "name": "Chunk Server 6670",
@@ -49,7 +87,10 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/server/",
-            "args": ["-addr", "127.0.0.1:6670", "-type", "cs", "-dir", "${workspaceFolder}/data/server4/", "-master", "127.0.0.1:6666"]
+            "args": ["-addr", "127.0.0.1:6670", "-type", "cs", "-dir", "/var/gfs/server4/", "-master", "127.0.0.1:6666"],
+            "env": {
+                "GOMEMLIMIT": "2000MiB"
+            }
         },
         {
             "name": "Chunk Server 6671",
@@ -57,13 +98,17 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/server/",
-            "args": ["-addr", "127.0.0.1:6671", "-type", "cs", "-dir", "${workspaceFolder}/data/server5/", "-master", "127.0.0.1:6666"]
-        }
+            "args": ["-addr", "127.0.0.1:6671", "-type", "cs", "-dir", "/var/gfs/server5/", "-master", "127.0.0.1:6666"],
+            "env": {
+                "GOMEMLIMIT": "2000MiB"
+            }
+        },
     ],
     "compounds": [
         {
             "name": "Servers",
-            "configurations": ["Chunk Server 6667", "Chunk Server 6668", "Chunk Server 6669", "Chunk Server 6670", "Chunk Server 6671", "Master Server"]
+            "configurations": ["Chunk Server 6667", "Chunk Server 6668", "Chunk Server 6669", "Chunk Server 6670", "Chunk Server 6671", "Master Server"],
+            "preLaunchTask": "Clean Data Directory"
         }
     ]
 }

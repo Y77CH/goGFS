@@ -64,6 +64,8 @@ Meanwhile, I have done following refinements:
 * Split reads: when the read crosses chunk boundary, the client automatically separates the request into two
 * Split write: when the write crosses boundary, the client will first write to the end; and then create new chunk(s) for writing
 
+One important decision I have made in this version is that I removed the location record in the client program. The reason is that I believe that **the library should be stateless**. It will surely increase the overheat on master, but I will figure out a way to reduce that later.
+
 ### goGFS v1.0
 
 Chunkserver recovery has been partially completed in 0.3.X where chunkservers are able to register at startup / restart, and the master will use heartbeat to ensure liveness of each chunkserver. However, in this version, I will enhance this feature such that when the chunkserver starts / restarts and do not receive heartbeat within twice the heartbeat interval, it will try reconnection.
@@ -208,7 +210,6 @@ as there is no real scenario where I need to, for example, set an individual bit
 
 There are some features / edge cases that are important but may not be implemented before large portion of the work is done.
 
-- [ ] Separate the read / write if it is crossing chunk boundary
 - [ ] Implement "read from closest" and pipelining during data push (paper 3.2)
 - [ ] Implement primary serializing mutations via batching
 - [ ] Figure out a way to test lease extension

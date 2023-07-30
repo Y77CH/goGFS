@@ -1,5 +1,5 @@
 .idea/*
-data/*
+data
 start.sh
 */__debug*
 .vscode/settings.json

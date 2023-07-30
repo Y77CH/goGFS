@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"io/ioutil"
 	"net"
 	"net/rpc"
 	"strconv"
@@ -16,7 +15,7 @@ import (
 )
 
 func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReturn) error {
-	zap.L().Debug("Read started")
+	zap.L().Info("Read started")
 	if args.expire.Before(time.Now()) {
 		cs.extensionBatch = append(cs.extensionBatch, args.Handle)
 	}
@@ -28,7 +27,7 @@ func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReturn) error {
 		return err
 	}
 	// seek to correct offset
-	f.Seek(args.Offset-1, 0) // need to minus one because seek treats the first byte as index 1
+	f.Seek(args.Offset, 0)
 	content := make([]byte, args.Length)
 	_, err = f.Read(content)
 	if err != nil {
@@ -37,32 +36,33 @@ func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReturn) error {
 	}
 
 	*reply = content
-	zap.L().Debug("Read finished")
+	zap.L().Info("Read finished")
 	return nil
 }
 
 // Called by client to push data to be written
 func (cs *ChunkServer) DataPush(args DataPushArg, reply *DataPushReturn) error {
-	zap.L().Debug("DataPush started")
+	zap.L().Info("Data push started",
+		zap.Uint64("handle", uint64(args.Handle)))
 
 	// store data as buffer cache in memory
 	id := bufferID{
 		Handle:    args.Handle,
 		Timestamp: time.Now(),
 	}
-	cs.cache.lock.Lock()
-	defer cs.cache.lock.Unlock()
 	// TODO Check for duplicacy first (same chunk, same time write)
+	cs.cache.lock.Lock()
 	cs.cache.buffer[id] = args.Data
+	cs.cache.lock.Unlock()
 	// reply DataID for future access
 	reply.DataBufferID = id
-	zap.L().Debug("DataPush finished")
+	zap.L().Info("DataPush finished")
 	return nil
 }
 
 // Client calls this function in primary to start append
 func (cs *ChunkServer) PrimaryApplyAppend(args PrimaryApplyAppendArg, reply *PrimaryApplyAppendReturn) error {
-	zap.L().Debug("PrimaryApplyAppend started")
+	zap.L().Info("PrimaryApplyAppend started")
 	if args.expire.Before(time.Now()) {
 		cs.extensionBatch = append(cs.extensionBatch, args.AppendBufferIDs[0].Handle)
 	}
@@ -119,13 +119,13 @@ func (cs *ChunkServer) PrimaryApplyAppend(args PrimaryApplyAppendArg, reply *Pri
 	}
 
 	zap.L().Info("Request all chunkservers to apply append success", zap.Uint64("handle", uint64(args.AppendBufferIDs[0].Handle)))
-	zap.L().Debug("PrimaryApplyAppend finished")
+	zap.L().Info("PrimaryApplyAppend finished")
 	return nil
 }
 
 // Client calls this function to start applying write
 func (cs *ChunkServer) PrimaryApplyWrite(args PrimaryApplyWriteArg, reply *PrimaryApplyWriteReturn) error {
-	zap.L().Debug("PrimaryApplyWrite started")
+	zap.L().Info("PrimaryApplyWrite started")
 
 	cs.extensionBatch = append(cs.extensionBatch, args.WriteBufferIDs[0].Handle)
 	toWrite, err := cs.getBuffer(args.WriteBufferIDs[0])
@@ -134,25 +134,14 @@ func (cs *ChunkServer) PrimaryApplyWrite(args PrimaryApplyWriteArg, reply *Prima
 		return err
 	}
 
-	// apply writing data to local
-	f, err := os.OpenFile(cs.dataDir+strconv.FormatUint(uint64(args.WriteBufferIDs[0].Handle), 10), os.O_WRONLY, os.ModeAppend)
+	// write data and increment version
+	err = write(cs.dataDir+strconv.FormatUint(uint64(args.WriteBufferIDs[0].Handle), 10), toWrite, args.ChunkOffset)
 	if err != nil {
-		zap.L().Fatal("Open file failed")
-	}
-	defer f.Close()
-	_, err = f.WriteAt(toWrite, args.ChunkOffset)
-	if err != nil {
-		zap.L().Fatal("Write to file failed")
 		return err
 	}
-
-	// TODO Double check the 0 used here
 	zap.L().Info("Write to file success", zap.Uint64("handle", uint64(args.WriteBufferIDs[0].Handle)))
-
-	*reply = PrimaryApplyWriteReturn(0)
 	cs.incVersion(args.WriteBufferIDs[0].Handle)
 	if err != nil {
-		zap.L().Fatal("Increment version failed")
 		return err
 	}
 
@@ -176,13 +165,13 @@ func (cs *ChunkServer) PrimaryApplyWrite(args PrimaryApplyWriteArg, reply *Prima
 	}
 
 	zap.L().Info("Request all chunkservers to apply write success", zap.Uint64("handle", uint64(args.WriteBufferIDs[0].Handle)))
-	zap.L().Debug("PrimaryApplyWrite finished")
+	zap.L().Info("PrimaryApplyWrite finished")
 	return nil
 }
 
 // Primary calls this RPC to let the given chunkserver start writing / appending
 func (cs *ChunkServer) ApplyMutate(args ApplyMutationArg, reply *ApplyMutationReturn) error {
-	zap.L().Debug("ApplyMutate started")
+	zap.L().Info("ApplyMutate started")
 	// retrieve data from buffer
 	toWrite, err := cs.getBuffer(args.DataBufferID)
 	if err != nil {
@@ -191,16 +180,11 @@ func (cs *ChunkServer) ApplyMutate(args ApplyMutationArg, reply *ApplyMutationRe
 	}
 
 	// apply append data to local and record offset of write
-	f, err := os.OpenFile(cs.dataDir+strconv.FormatUint(uint64(args.DataBufferID.Handle), 10), os.O_WRONLY, os.ModeAppend)
+	err = write(cs.dataDir+strconv.FormatUint(uint64(args.DataBufferID.Handle), 10), toWrite, args.ChunkOffset)
 	if err != nil {
-		zap.L().Fatal("Open file failed")
-	}
-	defer f.Close()
-	_, err = f.WriteAt(toWrite, int64(args.ChunkOffset))
-	if err != nil {
-		zap.L().Fatal("Write to file failed")
 		return err
 	}
+
 	zap.L().Info("Write to file success", zap.Uint64("handle", uint64(args.DataBufferID.Handle)))
 	err = cs.incVersion(args.DataBufferID.Handle)
 	if err != nil {
@@ -208,7 +192,7 @@ func (cs *ChunkServer) ApplyMutate(args ApplyMutationArg, reply *ApplyMutationRe
 		return err
 	}
 
-	zap.L().Debug("ApplyMutate finished")
+	zap.L().Info("ApplyMutate finished")
 	return nil
 }
 
@@ -234,7 +218,7 @@ func (cs *ChunkServer) HeartBeat(args HeartBeatArg, reply *HeartBeatReturn) erro
 }
 
 func (cs *ChunkServer) NewChunk(args NewChunkArgs, ret *NewChunkReturn) error {
-	zap.L().Debug("NewChunk finished")
+	zap.L().Info("NewChunk started")
 	// create new chunk file
 	_, err := os.Create(cs.dataDir + strconv.FormatUint(uint64(args), 10))
 	if err != nil {
@@ -249,13 +233,13 @@ func (cs *ChunkServer) NewChunk(args NewChunkArgs, ret *NewChunkReturn) error {
 }
 
 func (cs *ChunkServer) DeleteChunk(args DelChunkArgs, ret *DelChunkReturn) error {
-	zap.L().Debug("DeleteChunk started")
+	zap.L().Info("DeleteChunk started")
 	err := os.Rename(cs.dataDir+strconv.FormatUint(uint64(args), 10), cs.dataDir+"."+strconv.FormatUint(uint64(args), 10))
 	if err != nil {
 		zap.L().Fatal("Delete chunk failed")
 		return err
 	}
-	zap.L().Debug("DeleteChunk finished")
+	zap.L().Info("DeleteChunk finished")
 	return nil
 }
 
@@ -279,7 +263,7 @@ func (cs *ChunkServer) loadVersion() (chunkVersionMap, error) {
 		}
 	} else {
 		// load mapping
-		jsonVal, err := ioutil.ReadFile(cs.dataDir + "versions.json") // it's reasonable to read all at once due to the small size of metadata
+		jsonVal, err := os.ReadFile(cs.dataDir + "versions.json") // it's reasonable to read all at once due to the small size of metadata
 		if err != nil {
 			zap.L().Fatal("Read version file failed")
 			return nil, err
@@ -332,7 +316,7 @@ func (id *bufferID) equal(toCompare bufferID) bool {
 	}
 }
 
-// Called by chunkserver to read its buffer
+// Called by chunkserver to read its buffer and delete it
 func (cs *ChunkServer) getBuffer(id bufferID) ([]byte, error) {
 	zap.L().Debug("getBuffer started")
 	cs.cache.lock.Lock()
@@ -341,10 +325,11 @@ func (cs *ChunkServer) getBuffer(id bufferID) ([]byte, error) {
 	for k, v := range cs.cache.buffer { // must iterate to get value as go does not support custom equal
 		if k.equal(id) {
 			toWrite = v
+			delete(cs.cache.buffer, k)
 		}
 	}
-	if len(toWrite) == 0 {
-		zap.L().Fatal("Data not found in cache")
+	if toWrite == nil {
+		zap.L().Fatal("Data not found in cache", zap.Uint64("handle", uint64(id.Handle)), zap.Time("timestamp", id.Timestamp))
 		return nil, errors.New("cannot find data in cache")
 	}
 	zap.L().Debug("getBuffer finished")
@@ -376,6 +361,21 @@ func (cs *ChunkServer) register(master string) error {
 		return err
 	}
 	zap.L().Debug("register finished")
+	return nil
+}
+
+func write(filename string, toWrite []byte, start int64) error {
+	// apply writing data to local
+	f, err := os.OpenFile(filename, os.O_WRONLY, os.ModeAppend) // index 0 always holds the value for primary
+	if err != nil {
+		zap.L().Fatal("Open file failed", zap.String("filename", filename))
+	}
+	defer f.Close()
+	_, err = f.WriteAt(toWrite, start)
+	if err != nil {
+		zap.L().Fatal("Write to file failed")
+		return err
+	}
 	return nil
 }
 

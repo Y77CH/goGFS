@@ -19,7 +19,7 @@ import (
 
 const HEARTBEAT_INTV = time.Second * 1
 const LEASE_DURATION = time.Second * 10
-const REP_FACTOR = 2
+const REP_FACTOR = 3
 
 type persistMeta struct {
 	Handle  handle // fields exported due to use of Marshal
@@ -73,7 +73,7 @@ func (ms *MasterServer) Register(args RegisterArgs, reply *RegisterReturn) error
 						// }
 
 						// add chunkserver
-						fmt.Printf("INFO: New chunkserver registered for handle %d\n", ms.chunkMapping[f][m].handle)
+						zap.L().Info("New registration", zap.String("chunkserver_addr", args.ChunkserverAddr), zap.Uint64("handle", uint64(h)))
 						ms.chunkMapping[f][m].servers = append(ms.chunkMapping[f][m].servers, args.ChunkserverAddr)
 					}
 				}
@@ -278,14 +278,14 @@ func (ms *MasterServer) heartBeat() error {
 				// for each file's each chunk's each server, heatbeat
 				client, err := rpc.Dial("tcp", ms.chunkMapping[f][m].servers[server])
 				if err != nil {
-					zap.L().Sugar().Warnf("Server %s unreachable\n", ms.chunkMapping[f][m].servers[server])
+					zap.L().Sugar().Warnf("Server %s cannot dial\n", ms.chunkMapping[f][m].servers[server])
 					continue
 				}
 				arg := HeartBeatArg(m)
 				var ret HeartBeatReturn
 				err = client.Call("ChunkServer.HeartBeat", arg, &ret)
 				if err != nil {
-					zap.L().Fatal("RPC call failed")
+					zap.L().Sugar().Warnf("Server %s cannot heatbeat\n", ms.chunkMapping[f][m].servers[server])
 					return err
 				}
 
@@ -344,7 +344,7 @@ func startMaster(addr string, metaDir string) error {
 				delete(master.chunkMapping, components[1])
 				continue
 			} else if components[0] == "FILE_ADD" {
-				h, err := strconv.ParseInt(components[2], 10, 64)
+				h, err := strconv.ParseUint(components[2], 10, 64)
 				if err != nil {
 					zap.L().Fatal("Convert logged handle to int64 failed")
 					return err
@@ -356,6 +356,7 @@ func startMaster(addr string, metaDir string) error {
 			}
 		}
 	}
+	zap.L().Info("Master replaying operation log finished")
 
 	// register and get listener
 	rpc.Register(&master)
