@@ -24,10 +24,10 @@ func testWrite(filename *string) {
 	// write 1MiB of data for 1024 times (-> todal 1 GiB)
 	start := time.Now()
 	for i := 0; i < 1024; i++ {
-		fmt.Printf("Writing %dth MB\n", i)
 		err := Write(*filename, int64(i*1024*1024), data)
 		if err != nil {
 			fmt.Println(err)
+			break
 		}
 	}
 	fmt.Println(time.Since(start))
@@ -40,7 +40,6 @@ func verifyWrite(filename *string) {
 		data = append(data, "TEST"...)
 	}
 	for i := 0; i < 1024/4; i++ {
-		fmt.Printf("Verifying %dth 4MB ======\n", i)
 		ret, err := Read(*filename, int64(i*1024*1024*4), 1024*1024*4)
 		if err != nil {
 			fmt.Println(err)
@@ -59,7 +58,7 @@ func verifyWrite(filename *string) {
 			}
 			act.WriteString(string(ret))
 			exp.WriteString(string(data))
-			fmt.Println("Data incorrect")
+			fmt.Println("Data incorrect. Check /var/gfs_test/")
 			break
 		}
 	}
