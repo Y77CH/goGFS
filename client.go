@@ -7,9 +7,10 @@ import (
 
 // DEFINITIONS =================================================
 
-const MASTER_ADDR = "127.0.0.1:6666"
 const CHUNK_SIZE_MB = 64
 const CHUNK_SIZE = CHUNK_SIZE_MB * 1024 * 1024
+
+var MASTER_ADDR string
 
 type handle uint64
 

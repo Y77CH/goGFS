@@ -44,9 +44,7 @@ func verifyWrite(filename *string) {
 		if err != nil {
 			fmt.Println(err)
 		}
-		if bytes.Equal(data, ret) {
-			fmt.Println("Data correct")
-		} else {
+		if !bytes.Equal(data, ret) {
 			// write to file for comparison when incorrect
 			exp, err := os.Create("/var/gfs_test/expected")
 			if err != nil {
@@ -102,7 +100,6 @@ func baselineTest(addr string) error {
 	start := time.Now()
 	ret := DirectWriteReturn(0)
 	for i := 0; i < 1024; i++ {
-		fmt.Println(i)
 		err = client.Call("ChunkServer.DirectWrite", DirectWriteArgs{data[i], "baseline.txt"}, &ret)
 		if err != nil {
 			fmt.Println("Error in DirectWrite call")
@@ -123,7 +120,10 @@ func main() {
 	filename := flag.String("f", "", "Specify the filename of test write")
 	op := flag.String("op", "", "Specify the type of operation")
 	node := flag.String("node", "", "Specify the node to run baseline test")
+	master := flag.String("ms", "", "Specify the master address")
 	flag.Parse()
+
+	MASTER_ADDR = *master
 
 	if *op == "w" {
 		testWrite(filename)
