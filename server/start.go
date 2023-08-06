@@ -3,8 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // CMD
@@ -15,8 +17,17 @@ func main() {
 	master := flag.String("master", "", "Specify the master address if starting a chunkserver")
 	flag.Parse()
 
-	logger, _ := zap.NewProduction()
+	atom := zap.NewAtomicLevel()
+	encoderCfg := zap.NewProductionEncoderConfig()
+	encoderCfg.TimeKey = "timestamp"
+	encoderCfg.EncodeTime = zapcore.ISO8601TimeEncoder
+	logger := zap.New(zapcore.NewCore(
+		zapcore.NewJSONEncoder(encoderCfg),
+		zapcore.Lock(os.Stdout),
+		atom,
+	))
 	defer logger.Sync()
+	atom.SetLevel(zap.DebugLevel)
 	undo := zap.ReplaceGlobals(logger)
 	defer undo()
 
