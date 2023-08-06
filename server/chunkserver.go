@@ -359,7 +359,7 @@ func (cs *ChunkServer) getBuffer(id bufferID) ([]byte, error) {
 }
 
 func (cs *ChunkServer) register(master string) error {
-	zap.L().Debug("register started")
+	zap.L().Debug("register started", zap.String("master_addr", master), zap.String("cs_addr", cs.addr))
 	client, err := rpc.Dial("tcp", master)
 	if err != nil {
 		return err

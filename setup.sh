@@ -40,6 +40,8 @@ if [[ $1 = "-wr" ]]
 then
     go run *.go -f $(geni-get client_id) -op w -ms $2
     go run *.go -f $(geni-get client_id) -op v -ms $2
+    go run *.go -f $(geni-get client_id) -op lw -ms $2
+    go run *.go -f $(geni-get client_id) -op v -ms $2
     exit 0
 fi
 if [[ $1 = "-bs" ]]

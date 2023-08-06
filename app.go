@@ -11,7 +11,7 @@ import (
 )
 
 // Test write of 1GB (1MB/Write)
-func testWrite(filename *string) {
+func testSmallWrite(filename *string) {
 	// generate 1 MiB of data
 	data := []byte{}
 	for i := 0; i < 1024*1024/4; i++ {
@@ -31,6 +31,28 @@ func testWrite(filename *string) {
 		}
 	}
 	fmt.Println(time.Since(start))
+	fmt.Println("(Small Write)")
+}
+
+// Test write of 1GB (at once)
+func testLargeWrite(filename *string) {
+	// generate 1 GiB of data
+	data := []byte{}
+	for i := 0; i < 1024*1024*1024/4; i++ {
+		data = append(data, "TEST"...)
+	}
+
+	// create file for write
+	Create(*filename)
+
+	// write
+	start := time.Now()
+	err := Write(*filename, 0, data)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(time.Since(start))
+	fmt.Println("(Large Write)")
 }
 
 // Read to verify write result (4MB/Read)
@@ -126,7 +148,9 @@ func main() {
 	MASTER_ADDR = *master
 
 	if *op == "w" {
-		testWrite(filename)
+		testSmallWrite(filename)
+	} else if *op == "lw" {
+		testLargeWrite(filename)
 	} else if *op == "v" {
 		verifyWrite(filename)
 	} else if *op == "b" {
