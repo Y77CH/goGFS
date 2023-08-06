@@ -243,6 +243,28 @@ func (cs *ChunkServer) DeleteChunk(args DelChunkArgs, ret *DelChunkReturn) error
 	return nil
 }
 
+type DirectWriteArgs struct {
+	Data     []byte
+	Filename string
+}
+
+type DirectWriteReturn int
+
+// Called directly by client to benchmark maximum data transfer + write speed
+func (cs *ChunkServer) DirectWrite(args DirectWriteArgs, ret *DirectWriteReturn) error {
+	zap.L().Info("DirectWrite benchmarking started")
+	f, err := os.OpenFile(cs.dataDir+args.Filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(args.Data)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // INTERNAL FUNCTIONS ==========================================
 
 // Called by chunkserver to load its version info

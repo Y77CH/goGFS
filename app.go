@@ -4,29 +4,11 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"math/rand"
+	"net/rpc"
 	"os"
 	"time"
 )
-
-// Test write across chunk boundary
-func testWriteAcrossBoundary() {
-	Create("test.txt")
-	data := []byte{}
-	// add "TEST" CHUNK_SIZE+1 times (each is 1 byte, so just across chunk boundary)
-	for i := 0; i < CHUNK_SIZE+1; i++ {
-		data = append(data, []byte("T")...)
-	}
-	Write("test.txt", 0, data)
-}
-
-// Test read across chunk boundary
-func testReadAcrossBoundary() {
-	content, err := Read("test.txt", CHUNK_SIZE, 1) // read the first letter in the second chunk
-	if err != nil {
-		fmt.Println("ERROR: Read Across Boundary Test Fails")
-	}
-	fmt.Println(string(content))
-}
 
 // Test write of 1GB (1MB/Write)
 func testWrite(filename *string) {
@@ -42,12 +24,11 @@ func testWrite(filename *string) {
 	// write 1MiB of data for 1024 times (-> todal 1 GiB)
 	start := time.Now()
 	for i := 0; i < 1024; i++ {
-		fmt.Printf("Writing %dth MB ======\n", i)
+		fmt.Printf("Writing %dth MB\n", i)
 		err := Write(*filename, int64(i*1024*1024), data)
 		if err != nil {
 			fmt.Println(err)
 		}
-		fmt.Printf("Speed: At %v (second) this MB finished writing\n", time.Since(start).Seconds())
 	}
 	fmt.Println(time.Since(start))
 }
@@ -84,14 +65,72 @@ func verifyWrite(filename *string) {
 	}
 }
 
+var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+func randStr(n int) string {
+	s := make([]rune, n)
+	for i := range s {
+		s[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(s)
+}
+
+type DirectWriteArgs struct {
+	Data     []byte
+	Filename string
+}
+
+type DirectWriteReturn int
+
+// Test the maximum performance: send file + write to disk (1 MB once)
+func baselineTest(addr string) error {
+	// Generate 1GB of data
+	fmt.Println("Start to generate data")
+	data := [1024][]byte{}
+	for i := 0; i < 1024; i++ {
+		data[i] = []byte(randStr(1024 * 1024))
+	}
+
+	// Prepare RPC
+	fmt.Println("Start to dial")
+	client, err := rpc.Dial("tcp", addr)
+	if err != nil {
+		fmt.Println("Error in dial")
+		return err
+	}
+	// Directly write to chunkserver & record time
+	fmt.Println("Start to transfer & write")
+	start := time.Now()
+	ret := DirectWriteReturn(0)
+	for i := 0; i < 1024; i++ {
+		fmt.Println(i)
+		err = client.Call("ChunkServer.DirectWrite", DirectWriteArgs{data[i], "baseline.txt"}, &ret)
+		if err != nil {
+			fmt.Println("Error in DirectWrite call")
+			fmt.Println(err)
+			return err
+		}
+	}
+	// Show speed
+	fmt.Print("Time Consumed: ")
+	fmt.Println(time.Since(start))
+	fmt.Print("Baseline speed: ")
+	fmt.Print(1024 / time.Since(start).Seconds())
+	fmt.Println(" MiB/s")
+	return nil
+}
+
 func main() {
 	filename := flag.String("f", "", "Specify the filename of test write")
 	op := flag.String("op", "", "Specify the type of operation")
+	node := flag.String("node", "", "Specify the node to run baseline test")
 	flag.Parse()
 
 	if *op == "w" {
 		testWrite(filename)
 	} else if *op == "v" {
 		verifyWrite(filename)
+	} else if *op == "b" {
+		baselineTest(*node)
 	}
 }
