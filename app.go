@@ -138,6 +138,81 @@ func baselineTest(addr string) error {
 	return nil
 }
 
+// Test the write performance (1G) when considering local IO
+func largeFileUploadTest(filedir string) {
+	f, err := os.Create(filedir + "large")
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = f.Write([]byte(randStr(1024 * 1024 * 1024)))
+	if err != nil {
+		panic(err)
+	}
+
+	f.Close()
+
+	start := time.Now()
+	f, err = os.Open(filedir + "large")
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	// "Upload" file at CHUNK_SIZE (to accomodate goseaweedfs)
+	for i := 0; i < 16; i++ {
+		data := make([]byte, 64*1024*1024)
+		_, err = f.Read(data)
+		if err != nil {
+			panic(err)
+		}
+		// TODO add a better filename generation
+		err := Write(randStr(4)+"large", int64(i*64*1024*1024), data)
+		if err != nil {
+			panic(err)
+		}
+	}
+	fmt.Println(time.Since(start))
+	fmt.Print("Small File Upload: ")
+	fmt.Print(1024 / time.Since(start).Seconds())
+	fmt.Println(" MiB/s")
+}
+
+// Test the write performance (1G; 1M/write) when considering local IO
+func smallFileUploadTest(filedir string) {
+	// generate small files
+	for i := 0; i < 1024; i++ {
+		f, err := os.Create(filedir + "small" + fmt.Sprint(i))
+		if err != nil {
+			panic(err)
+		}
+		_, err = f.Write([]byte(randStr(1024 * 1024)))
+		if err != nil {
+			panic(err)
+		}
+		f.Close()
+	}
+
+	// upload the files
+	start := time.Now()
+	for i := 0; i < 1024; i++ {
+		data := make([]byte, 1024*1024)
+		f, err := os.Open(filedir + "small" + fmt.Sprint(i))
+		if err != nil {
+			panic(err)
+		}
+		f.Read(data)
+		err = Write(randStr(4)+"small"+fmt.Sprint(i), 0, data)
+		if err != nil {
+			panic(err)
+		}
+		f.Close()
+	}
+	fmt.Println(time.Since(start))
+	fmt.Print("Small File Upload Speed: ")
+	fmt.Print(1024 / time.Since(start).Seconds())
+	fmt.Println(" MiB/s")
+}
+
 func main() {
 	filename := flag.String("f", "", "Specify the filename of test write")
 	op := flag.String("op", "", "Specify the type of operation")
@@ -155,5 +230,9 @@ func main() {
 		verifyWrite(filename)
 	} else if *op == "b" {
 		baselineTest(*node)
+	} else if *op == "u" {
+		smallFileUploadTest(*filename)
+	} else if *op == "lu" {
+		largeFileUploadTest(*filename)
 	}
 }

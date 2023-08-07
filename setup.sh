@@ -9,10 +9,12 @@ then
     echo "./setup.sh -cs: <cs_hostname:port> <ms_hostname:port>: start chunkserver with given hostnames"
     echo "./setup.sh -wr <ms_hostname:port>: benchmarks writing"
     echo "./setup.sh -bs <cs_hostname:port>: baseline benchmarking"
+    echo "./setup.sh -up <ms_hostname:port>: benchmarks file upload"
     exit 0
 fi
 if [[ $1 = "-s" ]]
 then
+    mkdir data
     mkdir ~/gfs_data/
     sudo mv ~/gfs_data/ /var/
     wget https://go.dev/dl/go1.20.7.linux-amd64.tar.gz -P ~/
@@ -48,4 +50,9 @@ if [[ $1 = "-bs" ]]
 then
     go run *.go -op b -node $2
     exit 0
+fi
+if [[ $1 = "-up" ]]
+then
+    go run *.go -f data/ -op u -ms $2
+    go run *.go -f data/ -op lu -ms $2
 fi
