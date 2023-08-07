@@ -270,7 +270,7 @@ func (ms *MasterServer) logOperation(opType string, path string, h handle) error
 
 // Master repeatedly calls this function to poll info from known chunkservers
 func (ms *MasterServer) heartBeat() error {
-	for f, _ := range ms.chunkMapping { // iterate through file names
+	for f := range ms.chunkMapping { // iterate through file names
 		for m := range ms.chunkMapping[f] { // iterate through chunks
 			// TODO batch RPC
 			for server := range ms.chunkMapping[f][m].servers {
@@ -290,7 +290,9 @@ func (ms *MasterServer) heartBeat() error {
 				}
 
 				// load to memory and write to metadata file
+				ms.mappingLock.Lock()
 				ms.chunkMapping[f][m].version = int(ret.Version)
+				ms.mappingLock.Unlock()
 			}
 		}
 	}
