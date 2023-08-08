@@ -102,7 +102,7 @@ type DirectWriteArgs struct {
 type DirectWriteReturn int
 
 // Test the maximum performance: send file + write to disk (1 MB once)
-func baselineTest(addr string) error {
+func smallWriteBaselineTest(addr string) error {
 	// Generate 1GB of data
 	fmt.Println("Start to generate data")
 	data := [1024][]byte{}
@@ -132,7 +132,87 @@ func baselineTest(addr string) error {
 	// Show speed
 	fmt.Print("Time Consumed: ")
 	fmt.Println(time.Since(start))
-	fmt.Print("Baseline speed: ")
+	fmt.Print("Small Write Baseline speed: ")
+	fmt.Print(1024 / time.Since(start).Seconds())
+	fmt.Println(" MiB/s")
+	return nil
+}
+
+// Test the maximum performance: send file + write to disk (1 GB once)
+func largeWriteBaselineTest(addr string) error {
+	// Generate 1GB of data
+	fmt.Println("Start to generate data")
+	data := []byte(randStr(1024 * 1024 * 1024))
+
+	// Prepare RPC
+	fmt.Println("Start to dial")
+	client, err := rpc.Dial("tcp", addr)
+	if err != nil {
+		fmt.Println("Error in dial")
+		return err
+	}
+	// Directly write to chunkserver & record time
+	fmt.Println("Start to transfer & write")
+	start := time.Now()
+	ret := DirectWriteReturn(0)
+	err = client.Call("ChunkServer.DirectWrite", DirectWriteArgs{data, "baseline-large.txt"}, &ret)
+	if err != nil {
+		fmt.Println("Error in DirectWrite call")
+		fmt.Println(err)
+		return err
+	}
+	// Show speed
+	fmt.Print("Time Consumed: ")
+	fmt.Println(time.Since(start))
+	fmt.Print("Large Write Baseline speed: ")
+	fmt.Print(1024 / time.Since(start).Seconds())
+	fmt.Println(" MiB/s")
+	return nil
+}
+
+// test the maximum performance: read file + send file + write to disk (1 mb once)
+func smallFileUploadBaselineTest(addr string, filedir string) error {
+	// generate small files
+	fmt.Println("Start to generate data")
+	for i := 0; i < 1024; i++ {
+		f, err := os.Create(filedir + "small" + fmt.Sprint(i))
+		if err != nil {
+			panic(err)
+		}
+		_, err = f.Write([]byte(randStr(1024 * 1024)))
+		if err != nil {
+			panic(err)
+		}
+		f.Close()
+	}
+	// Prepare RPC
+	fmt.Println("Start to dial")
+	client, err := rpc.Dial("tcp", addr)
+	if err != nil {
+		fmt.Println("Error in dial")
+		return err
+	}
+	// upload the files
+	fmt.Println("Start to read & transfer & write")
+	start := time.Now()
+	for i := 0; i < 1024; i++ {
+		data := make([]byte, 1024*1024)
+		f, err := os.Open(filedir + "small" + fmt.Sprint(i))
+		if err != nil {
+			panic(err)
+		}
+		f.Read(data)
+		ret := DirectWriteReturn(0)
+		err = client.Call("ChunkServer.DirectWrite", DirectWriteArgs{data, randStr(5) + "-baseline-small-" + fmt.Sprint(i)}, &ret)
+		if err != nil {
+			panic(err)
+		}
+		f.Close()
+	}
+	// Show speed
+	fmt.Print("Time Consumed: ")
+	fmt.Println(time.Since(start))
+	fmt.Print("Small Upload Baseline speed: ")
 	fmt.Print(1024 / time.Since(start).Seconds())
 	fmt.Println(" MiB/s")
 	return nil
@@ -166,13 +246,13 @@ func largeFileUploadTest(filedir string) {
 			panic(err)
 		}
 		// TODO add a better filename generation
-		err := Write(randStr(4)+"large", int64(i*64*1024*1024), data)
+		err := Write("large", int64(i*64*1024*1024), data)
 		if err != nil {
 			panic(err)
 		}
 	}
 	fmt.Println(time.Since(start))
-	fmt.Print("Small File Upload: ")
+	fmt.Print("Large File Upload: ")
 	fmt.Print(1024 / time.Since(start).Seconds())
 	fmt.Println(" MiB/s")
 }
@@ -228,11 +308,15 @@ func main() {
 		testLargeWrite(filename)
 	} else if *op == "v" {
 		verifyWrite(filename)
-	} else if *op == "b" {
-		baselineTest(*node)
 	} else if *op == "u" {
 		smallFileUploadTest(*filename)
 	} else if *op == "lu" {
 		largeFileUploadTest(*filename)
+	} else if *op == "sb" {
+		smallWriteBaselineTest(*node)
+	} else if *op == "lb" {
+		largeWriteBaselineTest(*node)
+	} else if *op == "ub" {
+		smallFileUploadBaselineTest(*node, *filename)
 	}
 }
