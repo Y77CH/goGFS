@@ -4,3 +4,4 @@ start.sh
 */__debug*
 .vscode/settings.json
 .archive/*
+.DS_Store

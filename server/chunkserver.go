@@ -255,13 +255,68 @@ func (cs *ChunkServer) DirectWrite(args DirectWriteArgs, ret *DirectWriteReturn)
 	zap.L().Info("DirectWrite benchmarking started")
 	f, err := os.OpenFile(cs.dataDir+args.Filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
+		zap.L().Fatal("Query file info failed", zap.String("name", cs.dataDir+args.Filename))
 		return err
 	}
 	defer f.Close()
 	_, err = f.Write(args.Data)
 	if err != nil {
+		zap.L().Fatal("Write file failed", zap.String("name", cs.dataDir+args.Filename))
 		return err
 	}
+	return nil
+}
+
+type GetChunksListArgs int // placeholder
+type GetChunksListReturn struct {
+	Lengths []int    // list of corresponding chunk lengths
+	Files   []string // list of chunk handles
+}
+
+// Called directly by client to collect chunk info (for benchmarking)
+func (cs *ChunkServer) GetChunksList(args GetChunksListArgs, ret *GetChunksListReturn) error {
+	// because data directly setup by client, cannot use loadVersion
+	files, err := os.ReadDir(cs.dataDir)
+	if err != nil {
+		zap.L().Fatal("Directory cannot be opened to get list of available files")
+	}
+	for _, f := range files {
+		ret.Files = append(ret.Files, f.Name())
+		finfo, err := f.Info()
+		if err != nil {
+			zap.L().Fatal("Query file info failed", zap.String("name", f.Name()))
+			return err
+		}
+		ret.Lengths = append(ret.Lengths, int(finfo.Size()))
+	}
+	return nil
+}
+
+type DirectReadArgs struct {
+	Start int64 // read start (precision required by seek())
+	Len   int   // length
+	File  string
+}
+type DirectReadReturn []byte // read result
+
+// Called directly by client to read a certain byte range of a given handle (for benchmarking)
+func (cs *ChunkServer) DirectRead(args DirectReadArgs, ret *DirectReadReturn) error {
+	f, err := os.Open(cs.dataDir + args.File)
+	if err != nil {
+		zap.L().Fatal("Cannot open file for read", zap.String("name", args.File))
+		return err
+	}
+
+	// seek to correct offset
+	f.Seek(args.Start, 0)
+	content := make([]byte, args.Len)
+	_, err = f.Read(content)
+	if err != nil {
+		zap.L().Fatal("Cannot read file")
+		return err
+	}
+
+	*ret = content
 	return nil
 }
 
