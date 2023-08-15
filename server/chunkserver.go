@@ -275,6 +275,7 @@ type GetChunksListReturn struct {
 
 // Called directly by client to collect chunk info (for benchmarking)
 func (cs *ChunkServer) GetChunksList(args GetChunksListArgs, ret *GetChunksListReturn) error {
+	zap.L().Info("GetChunksList started")
 	// because data directly setup by client, cannot use loadVersion
 	files, err := os.ReadDir(cs.dataDir)
 	if err != nil {
@@ -301,6 +302,7 @@ type DirectReadReturn []byte // read result
 
 // Called directly by client to read a certain byte range of a given handle (for benchmarking)
 func (cs *ChunkServer) DirectRead(args DirectReadArgs, ret *DirectReadReturn) error {
+	zap.L().Info("DirectWrite benchmarking started")
 	f, err := os.Open(cs.dataDir + args.File)
 	if err != nil {
 		zap.L().Fatal("Cannot open file for read", zap.String("name", args.File))

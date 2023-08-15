@@ -14,40 +14,35 @@ import (
 var HOSTNAME string
 
 // Test write of 1GB (1MB/Write)
-func testSmallWrite() {
+func testSmallWrite(filename string) {
 	// generate 1 MiB of data
-	data := []byte{}
-	for i := 0; i < 1024*1024/4; i++ {
-		data = append(data, "TEST"...)
+	data := [1024][]byte{}
+	for i := 0; i < 1024; i++ {
+		data[i] = []byte(randStr(1024 * 1024))
 	}
 
 	// create file for write
-	filename := HOSTNAME + "_smallwrite.txt"
 	Create(filename)
 
 	// write 1MiB of data for 1024 times (-> todal 1 GiB)
 	start := time.Now()
 	for i := 0; i < 1024; i++ {
-		err := Write(filename, int64(i*1024*1024), data)
+		err := Write(filename, int64(i*1024*1024), data[i])
 		if err != nil {
 			fmt.Println(err)
 			break
 		}
 	}
 	duration := time.Since(start)
-	fmt.Printf("Small Write: time: %d seconds; speed: %d MB/s\n", int(duration.Seconds()), 1024/duration)
+	fmt.Printf("Small Write: time: %d seconds; speed: %.3f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
 }
 
 // Test write of 1GB (at once)
-func testLargeWrite() {
+func testLargeWrite(filename string) {
 	// generate 1 GiB of data
-	data := []byte{}
-	for i := 0; i < 1024*1024*1024/4; i++ {
-		data = append(data, "TEST"...)
-	}
+	data := []byte(randStr(1024 * 1024 * 1024))
 
 	// create file for write
-	filename := HOSTNAME + "_largewrite.txt"
 	Create(filename)
 
 	// write
@@ -57,7 +52,7 @@ func testLargeWrite() {
 		fmt.Println(err)
 	}
 	duration := time.Since(start)
-	fmt.Printf("Large Write: time: %d seconds; speed: %d MB/s\n", int(duration.Seconds()), 1024/duration)
+	fmt.Printf("Large Write: time: %d seconds; speed: %.3f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
 }
 
 // Read to verify write result (4MB/Read)
@@ -107,7 +102,8 @@ type DirectWriteArgs struct {
 type DirectWriteReturn int
 
 // Test the maximum performance: send file + write to disk (1 MB once)
-func smallWriteBaseline(addr1 string, addr2 string, addr3 string) {
+func smallWriteMax(addr1 string, addr2 string, addr3 string, filename string) {
+	fmt.Printf("Testing max performance on %s, %s, %s\n", addr1, addr2, addr3)
 	// Generate 1GB of data
 	fmt.Println("Start to generate data")
 	data := [1024][]byte{}
@@ -136,7 +132,7 @@ func smallWriteBaseline(addr1 string, addr2 string, addr3 string) {
 	ret := DirectWriteReturn(0)
 	for i := 0; i < 3; i++ {
 		for j := 0; j < 1024; j++ {
-			err = clients[i].Call("ChunkServer.DirectWrite", DirectWriteArgs{data[j], HOSTNAME + "_baseline.txt"}, &ret)
+			err = clients[i].Call("ChunkServer.DirectWrite", DirectWriteArgs{data[j], filename}, &ret)
 			if err != nil {
 				panic(err)
 			}
@@ -144,11 +140,12 @@ func smallWriteBaseline(addr1 string, addr2 string, addr3 string) {
 	}
 	// Show speed
 	duration := time.Since(start)
-	fmt.Printf("Small Write Baseline: time: %d seconds; speed: %d MB/s\n", int(duration.Seconds()), 1024/duration)
+	fmt.Printf("Small Write Baseline: time: %d seconds; speed: %.3f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
 }
 
 // Test the maximum performance: send file + write to disk (1 GB once)
-func largeWriteBaseline(addr1 string, addr2 string, addr3 string) {
+func largeWriteMax(addr1 string, addr2 string, addr3 string, filename string) {
+	fmt.Printf("Testing max performance on %s, %s, %s\n", addr1, addr2, addr3)
 	// Generate 1GB of data
 	fmt.Println("Start to generate data")
 	data := []byte(randStr(1024 * 1024 * 1024))
@@ -176,14 +173,82 @@ func largeWriteBaseline(addr1 string, addr2 string, addr3 string) {
 	start := time.Now()
 	ret := DirectWriteReturn(0)
 	for i := 0; i < 3; i++ {
-		err = clients[i].Call("ChunkServer.DirectWrite", DirectWriteArgs{data, HOSTNAME + "_baseline-large.txt"}, &ret)
+		err = clients[i].Call("ChunkServer.DirectWrite", DirectWriteArgs{data, filename}, &ret)
 		if err != nil {
 			panic(err)
 		}
 	}
 	// Show speed
 	duration := time.Since(start)
-	fmt.Printf("Large Write Baseline: time: %d seconds; speed: %d MB/s\n", int(duration.Seconds()), 1024/duration)
+	fmt.Printf("Large Write Baseline: time: %d seconds; speed: %.3f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
+}
+
+func smallFileMax(addr1 string, addr2 string, addr3 string, fileprefix string) {
+	// Generate 1GB of data
+	fmt.Println("Start to generate data")
+	data := [1024][]byte{}
+	for i := 0; i < 1024; i++ {
+		data[i] = []byte(randStr(1024 * 1024))
+	}
+
+	// Prepare RPC
+	fmt.Println("Start to dial")
+	client1, err := rpc.Dial("tcp", addr1)
+	if err != nil {
+		panic(err)
+	}
+	client2, err := rpc.Dial("tcp", addr2)
+	if err != nil {
+		panic(err)
+	}
+	client3, err := rpc.Dial("tcp", addr3)
+	if err != nil {
+		panic(err)
+	}
+	clients := []*rpc.Client{client1, client2, client3}
+	// Directly write to chunkserver & record time
+	fmt.Println("Start to transfer & write")
+	start := time.Now()
+	ret := DirectWriteReturn(0)
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 1024; j++ {
+			err = clients[i].Call("ChunkServer.DirectWrite", DirectWriteArgs{data[j], fileprefix + fmt.Sprint(j) + ".txt"}, &ret)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+	// Show speed
+	duration := time.Since(start)
+	fmt.Printf("Small Files Write Baseline: time: %d seconds; speed: %.3f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
+}
+
+func smallFileTest(fileprefix string) {
+	// generate 1 MiB of data
+	data := [1024][]byte{}
+	for i := 0; i < 1024; i++ {
+		data[i] = []byte(randStr(1024 * 1024))
+	}
+
+	// write 1MiB of data for 1024 times (-> todal 1 GiB)
+	start := time.Now()
+	for i := 0; i < 1024; i++ {
+		filename := fileprefix + fmt.Sprint(i) + ".txt"
+		err := Create(filename)
+		if err != nil {
+			fmt.Println(i)
+			fmt.Println(err)
+			break
+		}
+		err = Write(filename, int64(i*1024*1024), data[i])
+		if err != nil {
+			fmt.Println(i)
+			fmt.Println(err)
+			break
+		}
+	}
+	duration := time.Since(start)
+	fmt.Printf("Small Files: time: %d seconds; speed: %.3f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
 }
 
 // Test the write performance (1G; 1M/write) when considering local IO
@@ -217,7 +282,7 @@ func smallFileUploadTest(filedir string) {
 		f.Close()
 	}
 	duration := time.Since(start)
-	fmt.Printf("Small File Upload: time: %d seconds; speed: %d MB/s\n", int(duration.Seconds()), 1024/duration)
+	fmt.Printf("Small File Upload: time: %d seconds; speed: %.3f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
 }
 
 type GetChunksListArgs int // placeholder
@@ -253,12 +318,12 @@ func randomReadBaseline(addr string) {
 	start := time.Now()
 	// Random reads
 	for i := 0; i < 256; i++ {
-		j := rand.Intn(len(ret.Files))                     // pick a random chunk
-		k := rand.Intn(ret.Lengths[j] / (4 * 1024 * 1024)) // pick one random 4mb-piece
-		if k == 0 {
+		j := rand.Intn(len(ret.Files)) // pick a random chunk
+		if ret.Lengths[j]/(4*1024*1024) == 0 {
 			i -= 1
 			continue
 		}
+		k := rand.Intn(ret.Lengths[j] / (4 * 1024 * 1024)) // pick one random 4mb-piece
 		content := DirectReadReturn{}
 		err := client.Call("ChunkServer.DirectRead", DirectReadArgs{int64(k), 4 * 1024 * 1024, ret.Files[j]}, &content)
 		if err != nil {
@@ -266,74 +331,63 @@ func randomReadBaseline(addr string) {
 		}
 	}
 	duration := time.Since(start)
-	fmt.Printf("Random Read Baseline: time: %d seconds; speed: %d MB/s\n", int(duration.Seconds()), 1024/duration)
+	fmt.Printf("Random Read Baseline: time: %d seconds; speed: %3.f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
 }
 
-// Test sequential read baseline performance (1GB)
 func sequentialReadBaseline(addr string) {
-	client, ret := getChunksList(addr)
 	start := time.Now()
-
-	alreadyRead := 0
-	for i := 0; i < len(ret.Files); i++ {
-		if 1024*1024*1024-alreadyRead <= ret.Lengths[i] {
-			// finish after this reading
-			client.Call("ChunkServer.DirectRead", DirectReadArgs{0, 1024*1024*1024 - alreadyRead, ret.Files[i]}, nil)
-			break
-		} else {
-			// read completely and continue
-			client.Call("ChunkServer.DirectRead", DirectReadArgs{0, ret.Lengths[i], ret.Files[i]}, nil)
-			alreadyRead += ret.Lengths[i]
-		}
+	client, err := rpc.Dial("tcp", addr)
+	if err != nil {
+		panic(err)
 	}
-	if alreadyRead < 1024*1024*1024 {
-		// after reading all chunks, still not satisfying 1GB
-		panic("Total chunk size is less than 1GB")
-	}
+	ret := DirectReadReturn{}
+	client.Call("ChunkServer.DirectRead", DirectReadArgs{0, 1024 * 1024 * 1024, ""}, &ret) // filename == "" -> read all
 	duration := time.Since(start)
-	fmt.Printf("Sequential Read Baseline: time: %d seconds; speed: %d MB/s\n", int(duration.Seconds()), 1024/duration)
+	fmt.Printf("Sequential Read Baseline: time: %d seconds; speed: %.3f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
 }
 
-// Setup 160G fileset for read benchmarking (CloudLab constraint)
-func setupFileSet() {
-	for i := 0; i < 160; i++ {
-		data := randStr(1024 * 1024 * 1024)
+// Setup fileset for read benchmarking (CloudLab constraint)
+// note: fsize is in byte
+func setupFileSet(fnum int, fsize int) {
+	for i := 0; i < fnum; i++ {
+		data := randStr(fsize)
 		fmt.Println("Data generated")
-		Write("test"+fmt.Sprint(i)+".txt", 0, []byte(data))
+		Write("readtest_"+fmt.Sprint(i)+".txt", 0, []byte(data))
 		fmt.Println("Data written")
 	}
 }
 
 // Test random read performance (4MB * 256)
-func testRandomRead() {
+// note: fsize is in byte
+func testRandomRead(fnum int, fsize int) {
 	start := time.Now()
 	for i := 0; i < 256; i++ {
-		j := rand.Intn(160)
-		k := rand.Intn(1024 / 4)
-		_, err := Read("test"+fmt.Sprint(j)+".txt", int64(k), 4*1024*1024)
+		j := rand.Intn(fnum)
+		k := rand.Intn(fsize / 1024 / 1024 / 4)
+		_, err := Read("readtest_"+fmt.Sprint(j)+".txt", int64(k), 4*1024*1024)
 		if err != nil {
 			panic(err)
 		}
 	}
 	duration := time.Since(start)
-	fmt.Printf("Random Read: time: %d seconds; speed: %d MB/s\n", int(duration.Seconds()), 1024/duration)
+	fmt.Printf("Random Read: time: %d seconds; speed: %.3f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
 }
 
 // Test sequential read performance (1GB)
 func testSequentialRead() {
 	start := time.Now()
-	_, err := Read("test1.txt", 0, 1024*1024*1024)
+	_, err := Read("readtest_0.txt", 0, 1024*1024*1024)
 	if err != nil {
 		panic(err)
 	}
 	duration := time.Since(start)
-	fmt.Printf("Sequential Read: time: %d seconds; speed: %d MB/s\n", int(duration.Seconds()), 1024/duration)
+	fmt.Printf("Sequential Read: time: %d seconds; speed: %.3f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
 }
 
 func main() {
-	path := flag.String("f", "", "Specify the filename of test write")
+	// path := flag.String("f", "", "Specify the filename of test write")
 	op := flag.String("op", "", "Specify the type of operation")
-	nodes := flag.String("node", "", "Specify the node to run baseline test, separated by ';'")
+	nodes := flag.String("nodes", "", "Specify the node to run baseline test, separated by comma")
 	master := flag.String("ms", "", "Specify the master address")
 	flag.Parse()
 
@@ -353,26 +407,28 @@ func main() {
 	nodes_list := strings.Split(*nodes, ",")
 
 	if *op == "sw" {
-		testSmallWrite()
-		verifyWrite(HOSTNAME + "_smallwrite.txt")
+		testSmallWrite(HOSTNAME + "_smallwrite.txt")
+		// verifyWrite(HOSTNAME + "_smallwrite.txt")
 	} else if *op == "lw" {
-		testLargeWrite()
-		verifyWrite(HOSTNAME + "_largewrite.txt")
-	} else if *op == "swb" {
-		smallWriteBaseline(nodes_list[0], nodes_list[1], nodes_list[2])
-	} else if *op == "lwb" {
-		largeWriteBaseline(nodes_list[0], nodes_list[1], nodes_list[2])
-	} else if *op == "su" {
-		smallFileUploadTest(*path)
+		testLargeWrite(HOSTNAME + "_largewrite.txt")
+		// verifyWrite(HOSTNAME + "_largewrite.txt")
+	} else if *op == "swmax" {
+		smallWriteMax(nodes_list[0], nodes_list[1], nodes_list[2], HOSTNAME+"_smallwrite-max.txt")
+	} else if *op == "lwmax" {
+		largeWriteMax(nodes_list[0], nodes_list[1], nodes_list[2], HOSTNAME+"_largewrite-max.txt")
+	} else if *op == "sf" {
+		smallFileTest(HOSTNAME + "_smallfiles_")
+	} else if *op == "sfmax" {
+		smallFileMax(nodes_list[0], nodes_list[1], nodes_list[2], HOSTNAME+"_smallfile-max_")
+	} else if *op == "setup" {
+		setupFileSet(4, 1024*1024*1024)
 	} else if *op == "rr" {
-		testRandomRead()
+		testRandomRead(4, 1024*1024*1024)
 	} else if *op == "sr" {
 		testSequentialRead()
-	} else if *op == "rrb" {
+	} else if *op == "rrmax" {
 		randomReadBaseline(nodes_list[0])
-	} else if *op == "srb" {
+	} else if *op == "srmax" {
 		sequentialReadBaseline(nodes_list[0])
-	} else if *op == "setup" {
-		setupFileSet()
 	}
 }
