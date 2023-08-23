@@ -51,6 +51,17 @@ General roadmap (may change):
 * In the 1.0 version, I'm completing the recovery feature: the master should be able to recover by replaying operation log.
 * In the 1.1.X version, I will be benchmarking the current implementation and fixing functionality bugs along the way.
 
+### goGFS v1.2
+
+In this version, I will address a few issues I noticed during benchmarking:
+
+* The client communicates the master each time it needs to write. Therefore, in order to reduce communication cost, I will cache the primary address on the client side.
+* Meanwhile, I observed that the master will crash when multiple clients creating files at the same time. I will try to change the master lock structure in order to address this issue.
+
+Other than that, there are a few small changes:
+
+* I will make the logger print line number of calling for easier debug
+
 ### goGFS v1.1
 
 In this version, I will deploy the system to [CloudLab](https://www.cloudlab.us) which simulates a bare metal real world cluster, and collect basic data of the current implementation. A detailed list of analysis is documented below:

@@ -25,7 +25,7 @@ func main() {
 		zapcore.NewJSONEncoder(encoderCfg),
 		zapcore.Lock(os.Stdout),
 		atom,
-	))
+	), zap.AddCaller())
 	defer logger.Sync()
 	atom.SetLevel(zap.DebugLevel)
 	undo := zap.ReplaceGlobals(logger)

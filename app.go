@@ -14,20 +14,20 @@ import (
 var HOSTNAME string
 
 // Test write of 1GB (1MB/Write)
-func testSmallWrite(filename string) {
+func testSmallWrite(gclient *GFSClient, filename string) {
 	// generate 1 MiB of data
-	data := [1024][]byte{}
+	data := []byte{}
 	for i := 0; i < 1024; i++ {
-		data[i] = []byte(randStr(1024 * 1024))
+		data = append(data, []byte(randStr(1024*1024))...)
 	}
 
 	// create file for write
-	Create(filename)
+	gclient.Create(filename)
 
 	// write 1MiB of data for 1024 times (-> todal 1 GiB)
 	start := time.Now()
 	for i := 0; i < 1024; i++ {
-		err := Write(filename, int64(i*1024*1024), data[i])
+		err := gclient.Write(filename, int64(i*1024*1024), data[i*1024*1024:(i+1)*1024*1024])
 		if err != nil {
 			fmt.Println(err)
 			break
@@ -35,19 +35,20 @@ func testSmallWrite(filename string) {
 	}
 	duration := time.Since(start)
 	fmt.Printf("Small Write: time: %d seconds; speed: %.3f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
+	verifyWrite(gclient, filename, data)
 }
 
 // Test write of 1GB (at once)
-func testLargeWrite(filename string) {
+func testLargeWrite(gclient *GFSClient, filename string) {
 	// generate 1 GiB of data
 	data := []byte(randStr(1024 * 1024 * 1024))
 
 	// create file for write
-	Create(filename)
+	gclient.Create(filename)
 
 	// write
 	start := time.Now()
-	err := Write(filename, 0, data)
+	err := gclient.Write(filename, 0, data)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -55,18 +56,14 @@ func testLargeWrite(filename string) {
 	fmt.Printf("Large Write: time: %d seconds; speed: %.3f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
 }
 
-// Read to verify write result (4MB/Read)
-func verifyWrite(filename string) {
-	data := []byte{}
-	for i := 0; i < 1024*1024; i++ { // 1024*1024*4/4
-		data = append(data, "TEST"...)
-	}
+// Read to verify write result (1GB)
+func verifyWrite(gclient *GFSClient, filename string, expected []byte) {
 	for i := 0; i < 1024/4; i++ {
-		ret, err := Read(filename, int64(i*1024*1024*4), 1024*1024*4)
+		ret, err := gclient.Read(filename, int64(i*1024*1024*4), 1024*1024*4)
 		if err != nil {
 			fmt.Println(err)
 		}
-		if !bytes.Equal(data, ret) {
+		if !bytes.Equal(expected[i*1024*1024:(i+1)*1024*1024], ret) {
 			// write to file for comparison when incorrect
 			exp, err := os.Create("/var/gfs_test/expected")
 			if err != nil {
@@ -76,8 +73,8 @@ func verifyWrite(filename string) {
 			if err != nil {
 				fmt.Println("Cannot create actual data file")
 			}
-			act.WriteString(string(ret))
-			exp.WriteString(string(data))
+			act.WriteString(string(ret[i*1024*1024 : (i+1)*1024*1024]))
+			exp.WriteString(string(expected))
 			fmt.Println("Data incorrect. Check /var/gfs_test/")
 			break
 		}
@@ -223,7 +220,7 @@ func smallFileMax(addr1 string, addr2 string, addr3 string, fileprefix string) {
 	fmt.Printf("Small Files Write Baseline: time: %d seconds; speed: %.3f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
 }
 
-func smallFileTest(fileprefix string) {
+func smallFileTest(gclient *GFSClient, fileprefix string) {
 	// generate 1 MiB of data
 	data := [1024][]byte{}
 	for i := 0; i < 1024; i++ {
@@ -234,13 +231,13 @@ func smallFileTest(fileprefix string) {
 	start := time.Now()
 	for i := 0; i < 1024; i++ {
 		filename := fileprefix + fmt.Sprint(i) + ".txt"
-		err := Create(filename)
+		err := gclient.Create(filename)
 		if err != nil {
 			fmt.Println(i)
 			fmt.Println(err)
 			break
 		}
-		err = Write(filename, int64(i*1024*1024), data[i])
+		err = gclient.Write(filename, int64(0), data[i])
 		if err != nil {
 			fmt.Println(i)
 			fmt.Println(err)
@@ -252,7 +249,7 @@ func smallFileTest(fileprefix string) {
 }
 
 // Test the write performance (1G; 1M/write) when considering local IO
-func smallFileUploadTest(filedir string) {
+func smallFileUploadTest(gclient *GFSClient, filedir string) {
 	// generate small files
 	for i := 0; i < 1024; i++ {
 		f, err := os.Create(filedir + "small" + fmt.Sprint(i))
@@ -275,7 +272,7 @@ func smallFileUploadTest(filedir string) {
 			panic(err)
 		}
 		f.Read(data)
-		err = Write(HOSTNAME+"_small"+fmt.Sprint(i), 0, data)
+		err = gclient.Write(HOSTNAME+"_small"+fmt.Sprint(i), 0, data)
 		if err != nil {
 			panic(err)
 		}
@@ -312,8 +309,8 @@ type DirectReadArgs struct {
 }
 type DirectReadReturn []byte // read result
 
-// Test random read baseline performance (4MB * 256)
-func randomReadBaseline(addr string) {
+// Test random read max performance (4MB * 256)
+func randomReadMax(addr string) {
 	client, ret := getChunksList(addr)
 	start := time.Now()
 	// Random reads
@@ -334,7 +331,7 @@ func randomReadBaseline(addr string) {
 	fmt.Printf("Random Read Baseline: time: %d seconds; speed: %3.f MB/s\n", int(duration.Seconds()), 1024/duration.Seconds())
 }
 
-func sequentialReadBaseline(addr string) {
+func sequentialReadMax(addr string) {
 	start := time.Now()
 	client, err := rpc.Dial("tcp", addr)
 	if err != nil {
@@ -348,23 +345,23 @@ func sequentialReadBaseline(addr string) {
 
 // Setup fileset for read benchmarking (CloudLab constraint)
 // note: fsize is in byte
-func setupFileSet(fnum int, fsize int) {
+func setupFileSet(gclient *GFSClient, fnum int, fsize int) {
 	for i := 0; i < fnum; i++ {
 		data := randStr(fsize)
 		fmt.Println("Data generated")
-		Write("readtest_"+fmt.Sprint(i)+".txt", 0, []byte(data))
+		gclient.Write("readtest_"+fmt.Sprint(i)+".txt", 0, []byte(data))
 		fmt.Println("Data written")
 	}
 }
 
 // Test random read performance (4MB * 256)
 // note: fsize is in byte
-func testRandomRead(fnum int, fsize int) {
+func testRandomRead(gclient *GFSClient, fnum int, fsize int) {
 	start := time.Now()
 	for i := 0; i < 256; i++ {
 		j := rand.Intn(fnum)
 		k := rand.Intn(fsize / 1024 / 1024 / 4)
-		_, err := Read("readtest_"+fmt.Sprint(j)+".txt", int64(k), 4*1024*1024)
+		_, err := gclient.Read("readtest_"+fmt.Sprint(j)+".txt", int64(k), 4*1024*1024)
 		if err != nil {
 			panic(err)
 		}
@@ -374,9 +371,9 @@ func testRandomRead(fnum int, fsize int) {
 }
 
 // Test sequential read performance (1GB)
-func testSequentialRead() {
+func testSequentialRead(gclient *GFSClient) {
 	start := time.Now()
-	_, err := Read("readtest_0.txt", 0, 1024*1024*1024)
+	_, err := gclient.Read("readtest_0.txt", 0, 1024*1024*1024)
 	if err != nil {
 		panic(err)
 	}
@@ -391,44 +388,41 @@ func main() {
 	master := flag.String("ms", "", "Specify the master address")
 	flag.Parse()
 
-	if *master == "" {
-		panic("Empty master")
-	}
-	if len(strings.Split(*master, ":")) != 2 {
-		panic("Invalid master")
+	gclient, err := Init(*master)
+	if err != nil {
+		panic(err)
 	}
 
-	MASTER_ADDR = *master
 	HOSTNAME, err := os.Hostname()
 	if err != nil {
-		panic("Cannot get hostname")
+		panic(err)
 	}
 
 	nodes_list := strings.Split(*nodes, ",")
 
 	if *op == "sw" {
-		testSmallWrite(HOSTNAME + "_smallwrite.txt")
+		testSmallWrite(gclient, HOSTNAME+"_smallwrite.txt")
 		// verifyWrite(HOSTNAME + "_smallwrite.txt")
 	} else if *op == "lw" {
-		testLargeWrite(HOSTNAME + "_largewrite.txt")
+		testLargeWrite(gclient, HOSTNAME+"_largewrite.txt")
 		// verifyWrite(HOSTNAME + "_largewrite.txt")
 	} else if *op == "swmax" {
 		smallWriteMax(nodes_list[0], nodes_list[1], nodes_list[2], HOSTNAME+"_smallwrite-max.txt")
 	} else if *op == "lwmax" {
 		largeWriteMax(nodes_list[0], nodes_list[1], nodes_list[2], HOSTNAME+"_largewrite-max.txt")
 	} else if *op == "sf" {
-		smallFileTest(HOSTNAME + "_smallfiles_")
+		smallFileTest(gclient, HOSTNAME+"_smallfiles_")
 	} else if *op == "sfmax" {
 		smallFileMax(nodes_list[0], nodes_list[1], nodes_list[2], HOSTNAME+"_smallfile-max_")
 	} else if *op == "setup" {
-		setupFileSet(4, 1024*1024*1024)
+		setupFileSet(gclient, 4, 1024*1024*1024)
 	} else if *op == "rr" {
-		testRandomRead(4, 1024*1024*1024)
+		testRandomRead(gclient, 4, 1024*1024*1024)
 	} else if *op == "sr" {
-		testSequentialRead()
+		testSequentialRead(gclient)
 	} else if *op == "rrmax" {
-		randomReadBaseline(nodes_list[0])
+		randomReadMax(nodes_list[0])
 	} else if *op == "srmax" {
-		sequentialReadBaseline(nodes_list[0])
+		sequentialReadMax(nodes_list[0])
 	}
 }

@@ -21,7 +21,8 @@ func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReturn) error {
 	}
 
 	// open file
-	f, err := os.Open(cs.dataDir + strconv.FormatUint(uint64(args.Handle), 10))
+	filename := cs.dataDir + strconv.FormatUint(uint64(args.Handle), 10)
+	f, err := os.Open(filename)
 	if err != nil {
 		zap.L().Fatal("Cannot open chunk file for read")
 		return err
@@ -31,7 +32,7 @@ func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReturn) error {
 	content := make([]byte, args.Length)
 	_, err = f.Read(content)
 	if err != nil {
-		zap.L().Fatal("Cannot read file")
+		zap.L().Fatal("Cannot read file", zap.String("filename", filename), zap.Int64("offset", args.Offset), zap.Error(err))
 		return err
 	}
 
